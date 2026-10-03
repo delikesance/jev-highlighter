@@ -9,7 +9,7 @@
 
   /**
    * Store sur chrome.storage.session. Écritures sérialisées (chaîne de promesses, FIFO, aucune perte) ;
-   * get() lit après les écritures en attente. set({ stopped: false }) (réarmement) efface aussi la demande d'arrêt.
+   * get() lit après les écritures en attente. set({ stopped: false }) (réarmement) efface la demande d'arrêt si antérieure.
    * stopFlag() : vrai si state.stopped, si jevAutoStop est posé, ou si le storage échoue (fail-closed).
    */
   function makeSessionStore(chromeApi, tabId, now) {
@@ -26,10 +26,16 @@
       return p;
     };
     function set(patch) {
+      const t = now();
       return enqueue(async () => {
         const cur = await read();
         await area.set({ [KEY]: { ...cur, ...(patch || {}) } });
-        if (patch && patch.stopped === false) await area.remove(STOP_KEY);
+        // Réarmement : n'efface qu'une demande d'arrêt strictement antérieure (un STOP posé pendant la file reste actif).
+        if (patch && patch.stopped === false) {
+          const r = await area.get(STOP_KEY);
+          const s = r && r[STOP_KEY];
+          if (s && Number.isFinite(s.at) && s.at < t) await area.remove(STOP_KEY);
+        }
       });
     }
     const get = () => enqueue(read);
@@ -55,52 +61,73 @@
     return el;
   }
 
-  /** getMyBetsDoc(filter) : nouvelle iframe cachée à chaque appel (l'ancienne retirée avant) ; échec/timeout => rejet. */
+  const ACTIVE_RE = /(^|\s)(is-active|isActive|active)(\s|$)/;
+  const LOADER_SEL = '[class*=loader], [class*=skeleton], [class*=spinner], bcdk-loader';
+  const EMPTY_SEL = 'my-bets-page [data-qa="my-bets-empty"]';
+
+  /**
+   * getMyBetsDoc(filter) : nouvelle iframe cachée (technique de context.js) à chaque appel, l'ancienne retirée avant.
+   * Lecture acceptée seulement après un SIGNAL POSITIF (bouton du filtre actif) puis une liste STABLE
+   * (2 lectures identiques avec cartes ; 3 lectures à 0 carte sans chargement, ou 2 avec marqueur vide). Sinon rejet.
+   */
   function makeMyBetsDoc(o) {
     const { doc, cfg, sleep, now } = o;
     const factory = o.iframeFactory || defaultIframeFactory;
     const selectFilter = o.selectFilter;
-    const waitMs = Number.isFinite(cfg.myBetsWaitMs) ? Math.min(cfg.myBetsWaitMs, 20000) : 10000;
-    const pollMs = Number.isFinite(cfg.pollMs) ? cfg.pollMs : 250;
     let current = null;
 
     const dispose = () => {
       if (current) { try { current.remove(); } catch (e) { /* déjà retirée */ } }
       current = null;
     };
-    async function waitFor(fn, t0, what) {
-      for (;;) {
-        const v = fn();
-        if (v) return v;
-        if (now() - t0 > waitMs) throw new Error('Mes paris : délai dépassé (' + what + ')');
-        await sleep(pollMs);
-      }
-    }
+    const filterActive = (d, filter) => {
+      const b = d.querySelector(`my-bets-page [data-qa="my-bets-filter-${filter}"]`);
+      return !!b && (ACTIVE_RE.test(b.className || '') || b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-selected') === 'true');
+    };
+
     async function getMyBetsDoc(filter) {
       if (filter !== 'ongoing' && filter !== 'ended') throw new Error('filtre Mes paris invalide');
       const path = cfg.myBetsPath;
       if (typeof path !== 'string' || !path.startsWith('/') || /\/\/|\\|:/.test(path)) throw new Error('myBetsPath invalide');
+      const waitMs = cfg.myBetsWaitMs;
+      const pollMs = cfg.pollMs;
+      if (!(Number.isFinite(waitMs) && waitMs >= 1 && waitMs <= 20000)) throw new Error('myBetsWaitMs invalide');
+      if (!(Number.isFinite(pollMs) && pollMs >= 50 && pollMs <= 1000)) throw new Error('pollMs invalide');
       dispose();
       const url = new URL(path, doc.location.href).href;
       const el = factory(doc, url);
       current = el;
+      el.setAttribute('data-jev-host', '');
       el.setAttribute('aria-hidden', 'true');
-      el.setAttribute('tabindex', '-1');
-      el.style.display = 'none';
-      (doc.body || doc.documentElement).appendChild(el);
+      el.tabIndex = -1;
+      el.style.cssText = 'position:fixed;left:-10000px;top:0;width:1280px;height:900px;border:0;opacity:0;pointer-events:none;';
+      doc.documentElement.appendChild(el);
+      const t0 = now();
+      const expired = () => now() - t0 > waitMs;
+      const page = () => {
+        if (current !== el) throw new Error('Mes paris : iframe remplacée');
+        const d = el.contentDocument;
+        return d && d.querySelector('my-bets-page') ? d : null;
+      };
       try {
-        const t0 = now();
-        const page = () => {
-          if (current !== el) throw new Error('Mes paris : iframe remplacée');
-          const d = el.contentDocument;
-          return d && d.querySelector('my-bets-page') ? d : null;
-        };
-        const d = await waitFor(page, t0, 'page');
-        if (!(await selectFilter(d, filter))) throw new Error('Mes paris : filtre introuvable');
-        await sleep(pollMs);
-        // Cartes, ou état vide reconnu (filtre actif et marqueur vide explicite). Sinon rejet.
-        await waitFor(() => page() && (d.querySelector('my-bets-page bet-card') || d.querySelector('my-bets-page [data-qa="my-bets-empty"]')), t0, 'cartes');
-        return d;
+        let d;
+        while (!(d = page())) { if (expired()) throw new Error('Mes paris : délai dépassé (page)'); await sleep(pollMs); }
+        if (!filterActive(d, filter) && !(await selectFilter(d, filter))) throw new Error('Mes paris : filtre introuvable');
+        let prev = null;
+        let same = 0;
+        for (;;) {
+          d = page();
+          if (d && filterActive(d, filter) && !d.querySelector(LOADER_SEL)) {
+            const cards = Array.from(d.querySelectorAll('my-bets-page bet-card'));
+            const sig = cards.map((c) => (c.getAttribute('data-qa') || '') + '/' + (c.className || '')).join('|');
+            same = sig === prev ? same + 1 : 1;
+            prev = sig;
+            const need = cards.length ? 2 : d.querySelector(EMPTY_SEL) ? 2 : 3;
+            if (same >= need) return d;
+          } else { prev = null; same = 0; }
+          if (expired()) throw new Error('Mes paris : filtre non confirmé ou liste instable');
+          await sleep(pollMs);
+        }
       } catch (e) {
         if (current === el) dispose();
         throw e;
@@ -132,7 +159,18 @@
       try { await store.requestStop(reason); } catch (e) { log('stop : écriture impossible', e && e.message); }
       await controller.stop(reason);
     }
-    return { controller, store, stop };
+    // L'iframe « Mes paris » est retirée dès que le contrôleur passe en STOPPED.
+    const step = async () => {
+      const r = await controller.step();
+      if (r === 'STOPPED') myBets.dispose();
+      return r;
+    };
+    const init = async () => {
+      const r = await controller.init();
+      if (r === 'STOPPED') myBets.dispose();
+      return r;
+    };
+    return { controller: { ...controller, step, init }, store, stop, myBets };
   }
 
   const api = { createRuntime, makeSessionStore, makeMyBetsDoc };

@@ -53,7 +53,8 @@ test('store : await set() résout après l\'écriture durable', async () => {
 
 test('store : stopFlag (stopped, jevAutoStop, storage en erreur)', async () => {
   const ch = fakeChrome();
-  const s = Wiring.makeSessionStore(ch, 7, () => 0);
+  let clock = 0;
+  const s = Wiring.makeSessionStore(ch, 7, () => clock++);
   assert.equal(await s.stopFlag(), false);
   await s.set({ stopped: true });
   assert.equal(await s.stopFlag(), true);
@@ -85,6 +86,10 @@ function factory(o = {}) {
   return fn;
 }
 
+function activate(d, flt) {
+  for (const b of d.querySelectorAll('[data-qa^="my-bets-filter-"]')) b.className = b.getAttribute('data-qa') === 'my-bets-filter-' + flt ? 'is-active' : '';
+}
+const realSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const cfg = (o = {}) => ({ ...structuredClone(CONFIG.auto), myBetsWaitMs: 200, pollMs: 50, ...o });
 
 test('getMyBetsDoc : doc frais, bon filtre, ancien iframe retiré, un seul vivant', async () => {
@@ -92,7 +97,8 @@ test('getMyBetsDoc : doc frais, bon filtre, ancien iframe retiré, un seul vivan
   const f = factory();
   const filters = [];
   const orig = Executor.selectMyBetsFilter;
-  const sel = (d, flt) => { filters.push(flt); return orig(d, flt); };
+  // Simule le site : le clic rend le filtre actif.
+  const sel = (d, flt) => { filters.push(flt); const ok = orig(d, flt); if (ok) activate(d, flt); return ok; };
   const get = Wiring.makeMyBetsDoc({ doc, cfg: cfg(), iframeFactory: f, selectFilter: sel, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now });
   const d1 = await get.getMyBetsDoc('ongoing');
   assert.equal(doc.querySelectorAll('iframe').length, 1);
@@ -100,11 +106,14 @@ test('getMyBetsDoc : doc frais, bon filtre, ancien iframe retiré, un seul vivan
   assert.notEqual(d1, d2);
   assert.equal(f.made[0].el.isConnected, false);
   assert.equal(doc.querySelectorAll('iframe').length, 1);
-  assert.deepEqual(filters, ['ongoing', 'ended']);
+  assert.deepEqual(filters, ['ended']); // « en cours » déjà actif : pas de clic
   assert.equal(f.made[1].url, ORIGIN + '/mes-paris');
   const el = f.made[1].el;
   assert.equal(el.getAttribute('aria-hidden'), 'true');
-  assert.equal(el.style.display, 'none');
+  assert.equal(el.style.position, 'fixed');
+  assert.equal(el.style.left, '-10000px');
+  assert.equal(el.style.opacity, '0');
+  assert.equal(el.style.pointerEvents, 'none');
   get.dispose();
   assert.equal(doc.querySelectorAll('iframe').length, 0);
 });
@@ -118,8 +127,80 @@ test('getMyBetsDoc : timeout => rejette et retire l\'iframe', async () => {
 
 test('getMyBetsDoc : filtre non cliquable => rejette', async () => {
   const doc = hostDoc();
-  const get = Wiring.makeMyBetsDoc({ doc, cfg: cfg(), iframeFactory: factory(), selectFilter: () => false, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now });
+  const get = Wiring.makeMyBetsDoc({ doc, cfg: cfg(), iframeFactory: factory({ file: 'fixture-mybets-ended.html' }), selectFilter: () => false, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now });
   await assert.rejects(get.getMyBetsDoc('ongoing'));
+});
+
+const mk = (f, sel, c = cfg()) => Wiring.makeMyBetsDoc({ doc: hostDoc(), cfg: c, iframeFactory: f, selectFilter: sel, sleep: realSleep, now: Date.now });
+
+test('getMyBetsDoc : filtre actif + 0 carte stable => doc vide accepté', async () => {
+  const f = factory();
+  const get = mk(f, () => true);
+  const p = get.getMyBetsDoc('ongoing');
+  for (const c of f.made[0].inner.querySelectorAll('bet-card')) c.remove();
+  const d = await p;
+  assert.equal(d.querySelectorAll('bet-card').length, 0);
+});
+
+test('getMyBetsDoc : 0 carte + loader présent => rejet', async () => {
+  const f = factory();
+  const get = mk(f, () => true);
+  const p = get.getMyBetsDoc('ongoing');
+  const inner = f.made[0].inner;
+  for (const c of inner.querySelectorAll('bet-card')) c.remove();
+  inner.querySelector('my-bets-page').insertAdjacentHTML('beforeend', '<div class="bcdk-skeleton-row"></div>');
+  await assert.rejects(p, /instable|non confirmé/);
+});
+
+test('getMyBetsDoc : filtre jamais actif => rejet', async () => {
+  const get = mk(factory(), () => true); // clic sans effet : « Terminés » jamais actif
+  await assert.rejects(get.getMyBetsDoc('ended'), /non confirmé|instable/);
+});
+
+test('getMyBetsDoc : ancien filtre affiché puis re-rendu asynchrone => lit seulement le bon filtre', async () => {
+  const f = factory();
+  const ended = new JSDOM(fx('fixture-mybets-ended.html')).window.document;
+  const sel = (d) => { setTimeout(() => { d.body.innerHTML = ended.body.innerHTML; }, 120); return true; };
+  const get = mk(f, sel, cfg({ myBetsWaitMs: 1000 }));
+  const d = await get.getMyBetsDoc('ended');
+  const want = Array.from(ended.querySelectorAll('bet-card')).map((c) => c.getAttribute('data-qa'));
+  assert.deepEqual(Array.from(d.querySelectorAll('bet-card')).map((c) => c.getAttribute('data-qa')), want);
+  assert.ok(d.querySelector('[data-qa="my-bets-filter-ended"]').classList.contains('is-active'));
+});
+
+test('getMyBetsDoc : cartes qui changent sans cesse => rejet', async () => {
+  const f = factory();
+  const get = mk(f, () => true, cfg({ myBetsWaitMs: 400 }));
+  const p = get.getMyBetsDoc('ongoing');
+  let n = 0;
+  const iv = setInterval(() => { const pg = f.made[0].inner.querySelector('my-bets-page'); pg.insertAdjacentHTML('beforeend', `<bet-card data-qa="x${n++}"></bet-card>`); }, 20);
+  try { await assert.rejects(p, /instable/); } finally { clearInterval(iv); }
+});
+
+test('getMyBetsDoc : myBetsWaitMs / pollMs invalides => rejet immédiat sans iframe', async () => {
+  for (const c of [cfg({ myBetsWaitMs: 0 }), cfg({ myBetsWaitMs: 'x' }), cfg({ pollMs: 0 }), cfg({ pollMs: NaN })]) {
+    const f = factory();
+    await assert.rejects(mk(f, () => true, c).getMyBetsDoc('ongoing'));
+    assert.equal(f.made.length, 0);
+  }
+});
+
+test('store : STOP posé pendant un réarmement en file => stopFlag reste vrai', async () => {
+  const ch = fakeChrome();
+  let t = 10;
+  const s = Wiring.makeSessionStore(ch, 7, () => t);
+  await s.requestStop('ancien'); // at 10
+  t = 20;
+  const rearm = s.set({ stopped: false }); // réarmement à 20, en file
+  t = 25;
+  await ch.storage.session.set({ jevAutoStop: { reason: 'Échap', at: 25 } }); // STOP concurrent
+  await rearm;
+  assert.equal(await s.stopFlag(), true);
+  assert.ok(ch.data.jevAutoStop);
+  // STOP antérieur au réarmement : effacé.
+  t = 30;
+  await s.set({ stopped: false });
+  assert.equal(await s.stopFlag(), false);
 });
 
 // ---- selectMyBetsFilter ----
@@ -180,6 +261,12 @@ test('createRuntime : init/arm/step SCAN avec modules réels, une seule now', as
   // makeExecutor via makeGuard (arm) : l'exécuteur reçoit la même now.
   assert.ok(seen.some(([n, f]) => n === 'controller' && f === now));
   assert.ok(seen.some(([n, f]) => n === 'executor' && f === now));
+  // M5 : iframe « Mes paris » retirée dès que step() renvoie STOPPED.
+  await rt.myBets.getMyBetsDoc('ongoing');
+  assert.equal(doc.querySelectorAll('iframe').length, 1);
+  await rt.store.set({ stopped: true });
+  assert.equal(await rt.controller.step(), 'STOPPED');
+  assert.equal(doc.querySelectorAll('iframe').length, 0);
   await rt.stop('test');
   assert.equal(await rt.store.stopFlag(), true);
   assert.equal((await rt.store.get()).phase, 'STOPPED');
