@@ -35,11 +35,10 @@ test('pickEvent: tri quickCount desc, elapsed asc (null dernier), index asc', ()
   assert.strictEqual(pickEvent(events, new Set(['c', 'e']), (e) => counts[e.href]).href, 'b');
   assert.strictEqual(pickEvent(events, new Set(['b', 'c', 'e']), (e) => counts[e.href]).href, 'd');
 });
-test('pickEvent: écarte Débute, suspendu, déjà tenté, quickCount 0, autre sport', () => {
+test('pickEvent: écarte Débute, déjà tenté, quickCount 0, autre sport', () => {
   const q = () => 1;
   assert.strictEqual(pickEvent([ev('x', { clock: { running: false, elapsedSec: 0 } })], new Set(), q), null);
   assert.strictEqual(pickEvent([ev('x', { clock: null })], new Set(), q), null);
-  assert.strictEqual(pickEvent([ev('x', { mainSuspended: true })], new Set(), q), null);
   assert.strictEqual(pickEvent([ev('x')], new Set(['x']), q), null);
   assert.strictEqual(pickEvent([ev('x')], new Set(), () => 0), null);
   assert.strictEqual(pickEvent([ev('x')], new Set(), () => NaN), null);
@@ -47,6 +46,10 @@ test('pickEvent: écarte Débute, suspendu, déjà tenté, quickCount 0, autre s
   assert.strictEqual(pickEvent([ev('x', { sport: 'tennis' })], new Set(), q), null);
   assert.strictEqual(pickEvent([], new Set(), q), null);
   assert.strictEqual(pickEvent(undefined, new Set(), q), null);
+});
+test('pickEvent: un match en cours reste candidat si son marché principal est suspendu', () => {
+  const event = ev('basket-q4', { sport: 'basketball', mainSuspended: true, clock: { running: true, remainingSec: 225, elapsedSec: null } });
+  assert.strictEqual(pickEvent([event], new Set(), () => 1), event);
 });
 test('quickMarkets: liste blanche par titre, sport inconnu => []', () => {
   assert.deepStrictEqual(quickMarkets(markets, 'football', cfg).map((m) => m.id), ['prochain_but', 'corners']);

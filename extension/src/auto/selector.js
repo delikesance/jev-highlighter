@@ -11,7 +11,9 @@
     const seen = tried instanceof Set ? tried : new Set();
     const rows = [];
     for (const e of events) {
-      if (!e || typeof e !== 'object' || e.mainSuspended || !SPORTS.includes(e.sport)) continue;
+      // Le 1X2 de la carte live peut être suspendu alors qu'un marché Fast reste jouable.
+      // La disponibilité est contrôlée de nouveau sur le marché Fast et dans le ticket avant exécution.
+      if (!e || typeof e !== 'object' || !SPORTS.includes(e.sport)) continue;
       if (!e.clock || e.clock.running !== true || seen.has(e.href)) continue;
       const n = quickCount(e);
       if (!isNum(n) || n <= 0) continue;
