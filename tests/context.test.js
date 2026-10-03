@@ -92,3 +92,50 @@ test('buildRequest : le contexte est transmis dans l\'état (et seulement s\'il 
   const q = Object.values(withCtx.questions)[0];
   assert.match(q.instructions, /contexte du match/i);
 });
+
+// ---- football : markup natif du bookmaker (matchCenter_*), pas de widgets Sportradar
+test('football · parseLive : probabilité affichée et statistiques en barres duel', () => {
+  const l = C.parseLive(doc('fixture-matchcenter-fb-live.html'));
+  assert.equal(l.home, 'Islande');
+  assert.equal(l.away, 'Bulgarie');
+  assert.deepEqual({ ...l.win_probability }, { home: 84, draw: 13, away: 3 });
+  assert.deepEqual(l.stats[0], { name: 'Buts', home: '1', away: '0' });
+  assert.deepEqual(l.stats.find((s) => s.name === 'xG'), { name: 'xG', home: '0.59', away: '1.00' });
+  assert.equal(C.parseLive(doc('fixture-matchcenter-fb-standing.html')), null);
+});
+
+test('football · parseHeadToHead : équipe du filtre actif, forme V/N/D, derniers matchs', () => {
+  const h = C.parseHeadToHead(doc('fixture-matchcenter-fb-perf.html'));
+  assert.equal(h.team_form[0].team, 'Islande');
+  assert.deepEqual({ ...h.team_form[0].record }, { wins: 2, draws: 4, losses: 4 });
+  assert.equal(h.last_matches[0].matches.length, 3);
+  assert.deepEqual({ ...h.last_matches[0].matches[0] }, { date: 'Mar. 29/09', competition: 'Ligue des Nations UEFA', result: 'V', home: 'Luxembourg', away: 'Islande', score: '0-3' });
+  const both = C.mergeH2h(h, C.parseHeadToHead(doc('fixture-matchcenter-fb-perf-bg.html')));
+  assert.deepEqual(both.team_form.map((f) => f.team), ['Islande', 'Bulgarie']);
+  assert.equal(both.last_matches.length, 2);
+});
+
+test('football · parseStandings : seul le groupe du match est gardé, équipes du match repérées', () => {
+  const s = C.parseStandings(doc('fixture-matchcenter-fb-standing.html'));
+  assert.equal(s.competition, 'Groupe C4');
+  assert.equal(s.teams_count, 4);
+  assert.deepEqual(s.match_teams.map((r) => r.team), ['Islande', 'Bulgarie']);
+  assert.deepEqual({ ...s.match_teams[1] }, { position: 4, team: 'Bulgarie', played: 2, points: 1, record: '0:1:1', goals: '1:2' });
+  assert.equal(s.leader.team, 'Islande');
+  assert.equal(s.table.length, 4);
+});
+
+test('football · compactContext : contexte complet et borné', () => {
+  const parts = {
+    live: C.parseLive(doc('fixture-matchcenter-fb-live.html')),
+    h2h: C.mergeH2h(C.parseHeadToHead(doc('fixture-matchcenter-fb-perf.html')), C.parseHeadToHead(doc('fixture-matchcenter-fb-perf-bg.html'))),
+    standings: C.parseStandings(doc('fixture-matchcenter-fb-standing.html'))
+  };
+  const ctx = C.compactContext({ parts, at: Date.now() });
+  assert.deepEqual(ctx.teams, ['Islande', 'Bulgarie']);
+  assert.equal(ctx.competition, 'Groupe C4');
+  assert.equal(ctx.sportradar_win_probability_pct.home, 84);
+  assert.equal(ctx.form[0].record.wins, 2);
+  assert.ok(ctx.last_matches[0].matches[0].startsWith('V Luxembourg 0-3 Islande'));
+  assert.ok(JSON.stringify(ctx).length <= 3500);
+});
