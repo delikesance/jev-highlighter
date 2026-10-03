@@ -67,6 +67,15 @@ test('readSlip: bandeau multiboost ignoré', () => {
   d.querySelector('sports-betting-slip').appendChild(a);
   assert.deepStrictEqual(R.readSlip(d).unknown, []);
 });
+test('readSlip: promotion Boost connue et suffixe EUR de cote ignorés', () => {
+  const d = load('fixture-slip-one.html');
+  d.querySelector('sports-betting-slip').insertAdjacentHTML(
+    'afterbegin',
+    '<betting-slip-alert><div>Booste ton pari !Ajoute 1 sélection supérieure à 1,20</div></betting-slip-alert>'
+  );
+  d.querySelector('betting-slip-odds-field').insertAdjacentHTML('beforeend', '<span>EUR</span>');
+  assert.deepStrictEqual(R.readSlip(d).unknown, []);
+});
 test('readWallet', () => {
   assert.strictEqual(R.readWallet(load('fixture-slip-one.html')), 6.53);
   assert.strictEqual(R.readWallet(new JSDOM('<p></p>').window.document), null);
