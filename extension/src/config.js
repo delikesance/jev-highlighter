@@ -69,6 +69,29 @@
       debounceMaxWaitMs: 3000
     },
 
+    // Mode Auto : valeurs réglables, bornées par les plafonds durs de auto/guard.js (on peut durcir, pas relâcher).
+    auto: {
+      minOdds: 1.3,
+      maxOdds: 4,
+      maxDriftPct: 3,
+      minLeadSec: 90,
+      minConfidence: 0.6,
+      confirmTimeoutMs: 8000,
+      hiddenTabMs: 5000,
+      maxBets: 5,
+      maxLosses: 3,
+      maxLossFraction: 0.5,
+      maxStakeFraction: 0.1,
+      // Marchés « rapides » autorisés : motifs sur le titre du marché (minuscules).
+      quickMarkets: {
+        football: [
+          /prochain but/, /qui marquera le \d+(?:er|e|ème|eme)? but/, /quand sera marqu/,
+          /sur la période/, /corner/, /carton/, /prochain buteur/
+        ],
+        basketball: [/prochain panier/, /total.*quart[- ]temps/, /quart[- ]temps.*total/]
+      }
+    },
+
     // Textes envoyés à JEV (génériques, aucun marché codé en dur).
     templates: {
       instructions: (title) =>
