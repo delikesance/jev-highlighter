@@ -11,6 +11,7 @@
     backendUrl: '',
     autoAnalyze: false,
     stakeAdvice: true,
+    matchContext: true,
     reorderPicks: false,
     dockOpen: true,
     dockCollapsed: false,

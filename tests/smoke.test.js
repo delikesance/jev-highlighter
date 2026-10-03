@@ -16,10 +16,11 @@ function boot(html, settings = {}) {
   return r;
 }
 function boot0(html, settings = {}) {
-  const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://bookmaker.test/match/1' });
+  const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true, url: settings.__url || 'https://bookmaker.test/match/1' });
   const w = dom.window;
   const listeners = [];
-  const store = { autoAnalyze: false, stakeAdvice: false, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false, ...settings };
+  const store = { autoAnalyze: false, stakeAdvice: false, matchContext: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false, ...settings };
+  delete store.__url;
   const sent = [];
   w.chrome = {
     runtime: {
@@ -135,6 +136,43 @@ test('smoke : assistant de mise inséré dans le ticket (avant le champ), détai
   assert.equal(host.shadowRoot.querySelectorAll('.step__head').length, 3);
   // le champ de mise du site n'est jamais rempli ni modifié
   assert.equal(doc.querySelector('input[name="stakeField"]').value, '');
+});
+
+const MATCH = '/basketball-sbasketball/betclic-elite-c15/nancy-cholet-m1233460038488064';
+const matchUrl = `https://bookmaker.test${MATCH}`;
+const C = require('../extension/src/context');
+const cdoc = (f) => new JSDOM(fs.readFileSync(path.join(__dirname, f), 'utf8')).window.document;
+
+test('smoke : contexte du match mémorisé -> transmis à JEV dans l\'état de la requête', async () => {
+  const parts = {
+    live: C.parseLive(cdoc('fixture-matchcenter-live.html')),
+    h2h: C.parseHeadToHead(cdoc('fixture-matchcenter-perf.html')),
+    standings: C.parseStandings(cdoc('fixture-matchcenter-standing.html'))
+  };
+  const { call, sent } = boot(fixture(), { __url: matchUrl, jevCtx: { [MATCH]: { at: Date.now(), parts } } });
+  await wait(30); // laisse les réglages se charger
+  const res = await call({ type: 'JEV_ANALYZE' });
+  assert.equal(res.status, 'done');
+  assert.deepEqual([...res.context.parts].sort(), ['h2h', 'live', 'standings']);
+  const body = JSON.parse(JSON.stringify(sent.find((m) => m.type === 'JEV_EVALUATE').body));
+  assert.deepEqual(body.state.match_context.teams, ['Nancy', 'Cholet']);
+  assert.ok(body.state.match_context.standings.match_teams.length === 2);
+});
+
+test('smoke : contexte désactivé ou indisponible -> l\'analyse fonctionne quand même, sans contexte', async () => {
+  const off = boot(fixture(), { __url: matchUrl, matchContext: false });
+  await wait(30);
+  await off.call({ type: 'JEV_ANALYZE' });
+  assert.ok(!('match_context' in off.sent.find((m) => m.type === 'JEV_EVALUATE').body.state));
+
+  const none = boot(fixture(), { __url: matchUrl });
+  none.w.JEV.CONFIG.context.iframeLoadMs = 150; // iframe jamais chargé dans jsdom : on vérifie le repli
+  none.w.JEV.CONFIG.context.waitMs = 400;
+  await wait(30);
+  const res = await none.call({ type: 'JEV_ANALYZE' });
+  assert.equal(res.status, 'done');
+  assert.ok(!('match_context' in none.sent.find((m) => m.type === 'JEV_EVALUATE').body.state));
+  assert.equal(none.doc.querySelector('iframe'), null, 'iframe caché toujours retiré');
 });
 
 // fermeture des fenêtres jsdom (timers/observers) pour que le process puisse se terminer

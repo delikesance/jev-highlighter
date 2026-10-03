@@ -29,6 +29,7 @@
         "src/ui-root.js",
         "src/parser.js",
         "src/jev.js",
+        "src/context.js",
         "src/matcher.js",
         "src/stake.js",
         "src/highlighter.js",

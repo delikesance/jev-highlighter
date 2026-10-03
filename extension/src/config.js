@@ -44,6 +44,16 @@
       }
     },
 
+    // Contexte du match lu sur la page `<url du match>/match-center` (widgets Sportradar).
+    context: {
+      ttlMs: 3 * 60 * 1000, // fraîcheur (les stats live bougent) ; au-delà on recharge
+      waitMs: 15000, // attente max du contexte avant d'analyser sans lui
+      iframeLoadMs: 10000,
+      tabMs: 6000, // attente max du rendu de chaque onglet
+      maxChars: 3500, // taille max du contexte envoyé à JEV
+      maxStored: 20 // matchs mémorisés dans chrome.storage
+    },
+
     // Suggestion de mise : JEV choisit une tranche de mise parmi plusieurs, puis on affine tranche par tranche.
     // Suggestion uniquement : l'extension ne remplit JAMAIS le champ de mise.
     stake: {
@@ -57,7 +67,9 @@
     // Textes envoyés à JEV (génériques, aucun marché codé en dur).
     templates: {
       instructions: (title) =>
-        `Marché de paris : « ${title} ». Quelle sélection est la plus susceptible de se réaliser ?`,
+        `Marché de paris : « ${title} ». Quelle sélection est la plus susceptible de se réaliser ? ` +
+        `Appuie-toi sur le contexte du match fourni dans l'état (forme récente, classement, face-à-face, ` +
+        `statistiques live) quand il est disponible, pas seulement sur le libellé du marché.`,
       criterion: (title, option) => `La sélection « ${option} » se réalise pour le marché « ${title} ».`
     },
     // true => les marchés Oui/Non sont envoyés en `noul`. Par défaut `choice` (matching DOM plus fiable).
