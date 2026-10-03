@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const { CONFIG } = require('../extension/src/config');
 const Guard = require('../extension/src/auto/guard');
 
-const base = () => JSON.parse(JSON.stringify(CONFIG.auto));
+const base = () => structuredClone(CONFIG.auto);
 const good = (o = {}) => ({ balance: 100, stake: 5, odds: 2, analysedOdds: 2, suspended: false, leadSec: 200, confidence: 0.8, ...o });
 
 test('defauts CONFIG.auto', () => {
@@ -137,12 +137,12 @@ test('fuzz: 2000 propositions, plafonds jamais depasses', () => {
   for (let i = 0; i < 2000; i++) {
     const start = rnd() < 0.2 ? 5.9 : 1 + rnd() * 500;
     const g = Guard.create(base(), start);
-    g.state.placed = Math.floor(rnd() * 6);
+    for (let k = Math.floor(rnd() * 6); k > 0; k--) g.recordPlaced();
     if (rnd() < 0.25) g.reserve(rnd() * start * 0.3);
     const pick = (v) => (rnd() < 0.08 ? weird[Math.floor(rnd() * weird.length)] : v);
     const o = 1.1 + rnd() * 5;
     const p = {
-      balance: pick(start * (0.4 + rnd() * 0.9)), stake: pick(rnd() * start * 0.14),
+      balance: pick(start * (0.4 + rnd() * 0.9)), stake: pick(rnd() < 0.3 ? rnd() * start * 0.14 : Math.floor(rnd() * start * 14) / 100),
       odds: pick(o), analysedOdds: pick(rnd() < 0.7 ? o * (1 + (rnd() - 0.5) * 0.12) : 1 + rnd() * 6),
       suspended: rnd() < 0.1, leadSec: pick(rnd() * 300), confidence: pick(0.4 + rnd() * 0.6)
     };
@@ -152,6 +152,7 @@ test('fuzz: 2000 propositions, plafonds jamais depasses', () => {
     assert.ok(p.stake <= start * 0.1 + 1e-9, 'mise > 10 %');
     assert.ok(start - p.balance + g.state.reserved + p.stake <= start * 0.5 + 1e-9, 'perte > 50 %');
     assert.ok(g.state.placed < 5);
+    assert.ok(Math.abs(p.stake * 100 - Math.round(p.stake * 100)) < 1e-6, 'mise non entière en centimes');
     assert.ok(p.odds >= 1.2 && p.odds <= 6 && p.leadSec >= 60 && p.confidence >= 0.5 && !p.suspended);
     assert.ok(Math.abs(p.odds - p.analysedOdds) / p.analysedOdds * 100 <= 5);
   }
@@ -160,6 +161,52 @@ test('fuzz: 2000 propositions, plafonds jamais depasses', () => {
 
 test('guard.js et config.js sans mot cle API', () => {
   for (const f of ['../extension/src/auto/guard.js', '../extension/src/config.js']) {
-    assert.doesNotMatch(fs.readFileSync(require('node:path').join(__dirname, f), 'utf8'), /apiKey|eval\(/);
+    assert.doesNotMatch(fs.readFileSync(require('node:path').join(__dirname, f), 'utf8'), /api[_-]?key|clé API|x-api-key|eval\(/i);
   }
+});
+
+test('snapshot: muter cfg apres create ne change rien', () => {
+  const c = base(); const g = Guard.create(c, 100);
+  c.minOdds = 1.0; c.minLeadSec = NaN; c.minConfidence = undefined; c.maxOdds = 99;
+  assert.equal(g.check(good({ odds: 1.05, analysedOdds: 1.05 })).verdict, 'NON');
+  assert.equal(g.check(good({ leadSec: 10 })).verdict, 'NON');
+  assert.equal(g.check(good({ confidence: 0.1 })).verdict, 'NON');
+  assert.equal(g.check(good({ odds: 5, analysedOdds: 5 })).verdict, 'NON');
+});
+test('config legale mais sous plancher HARD impossible via create', () => {
+  const c = base(); c.minOdds = 1.2; const g = Guard.create(c, 100);
+  assert.equal(g.check(good({ odds: 1.19, analysedOdds: 1.19 })).verdict, 'NON');
+});
+test('centimes: pas d arrondi vers le haut', () => {
+  assert.equal(Guard.create(base(), 100).check(good({ stake: 10.004 })).verdict, 'NON');
+  assert.equal(Guard.create(base(), 59).check(good({ balance: 59, stake: 5.904 })).verdict, 'NON');
+  const g = Guard.create(base(), 1.01);
+  assert.equal(g.check(good({ balance: 1.01, stake: 0.51, odds: 2 })).verdict, 'NON');
+  assert.equal(g.check(good({ balance: 1.01, stake: 0.1 })).verdict, 'OUI');
+  assert.equal(g.check(good({ balance: 0.61, stake: 0.1 })).verdict, 'OUI'); // 0.40+0.10
+  assert.equal(g.check(good({ balance: 0.60, stake: 0.1 })).verdict, 'NON'); // 0.41+0.10=0.51
+});
+test('state fige (copie)', () => {
+  const g = Guard.create(base(), 100);
+  assert.throws(() => { 'use strict'; g.state.placed = 0; });
+  const s = g.state; g.recordPlaced();
+  assert.equal(s.placed, 0); assert.equal(g.state.placed, 1);
+});
+test('reservations en vol comptees', () => {
+  const g = Guard.create(base(), 100);
+  g.recordPlaced(); g.recordPlaced(); g.recordPlaced();
+  g.reserve(1); g.reserve(1);
+  assert.equal(g.check(good({ balance: 98 })).verdict, 'NON'); // 3 + 2 en vol
+  g.release(1, true);
+  assert.equal(g.check(good({ balance: 99 })).verdict, 'OUI');
+  g.recordPlaced(); // 4 places, 0 en vol (1 reserve restante)
+  assert.equal(g.check(good({ balance: 99 })).verdict, 'OUI');
+  g.recordPlaced();
+  assert.equal(g.check(good({ balance: 99 })).verdict, 'NON');
+});
+test('quickMarkets valide', () => {
+  for (const q of [undefined, [], { football: 'x' }, { football: [1] }, { football: ['Corner'] }]) {
+    const c = base(); c.quickMarkets = q; assert.equal(Guard.validateConfig(c).ok, false);
+  }
+  const c = base(); c.quickMarkets = { football: ['corner', /x/] }; assert.equal(Guard.validateConfig(c).ok, true);
 });
