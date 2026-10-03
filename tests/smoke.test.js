@@ -260,6 +260,28 @@ test('smoke Auto : autoMode faux -> aucun hôte, aucun storage.session, aucun me
   assert.ok(!keys.includes('keydown'));
 });
 
+test('smoke Auto actif : pas de requêtes des assistants automatiques concurrents', async () => {
+  const site = require('./helpers-fakesite').makeFakeSite({ preselected: true });
+  const html = site.dom.serialize();
+  site.win.close();
+  const { sent, doc } = boot(html, { autoMode: true, autoAnalyze: true, stakeAdvice: true, matchContext: false, __before: (w) => {
+    w.JEV.CONFIG.debounceMs = 20;
+    w.JEV.CONFIG.stake.debounceMs = 20;
+    w.JEV.Auto.Wiring.createRuntime = () => ({
+      store: { get: async () => ({ phase: 'EXEC', dryRun: false }) },
+      stop: async () => {},
+      controller: { init: async () => 'EXEC', arm: async () => {}, step: async () => 'EXEC' }
+    });
+  } });
+  await wait(5200); // dépasse le maxWait de l'anti-rebond malgré les mutations du panneau
+  doc.querySelector('sports-betting-slip').appendChild(doc.createTextNode('mutation du ticket'));
+  await wait(1200);
+  assert.equal(sent.filter((m) => m.type === 'JEV_EVALUATE').length, 0);
+  const control = boot(html, { autoMode: false, autoAnalyze: true, stakeAdvice: true, matchContext: false });
+  await wait(1700);
+  assert.ok(control.sent.some((m) => m.type === 'JEV_EVALUATE'));
+});
+
 test('smoke Auto : autoMode vrai -> panneau monté, runtime unique, aucun pari tant que non armé', async () => {
   let rt;
   const { doc, sent, session } = boot(fixture(), { autoMode: true, __before: (w) => { rt = spyRuntime(w, (o) => {

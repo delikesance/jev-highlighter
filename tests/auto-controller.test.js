@@ -111,7 +111,7 @@ test('match sans pick : réanalyse après 30 secondes, pas exclusion permanente'
   const t = await armed({ answers: [], now: () => time });
   await t.ctl.step(); await t.ctl.step(); await t.ctl.step(); await t.ctl.step();
   assert.equal(t.store.raw().retryAfter[EVENT.href], 30000);
-  await t.ctl.step(); await t.ctl.step();
+  await t.ctl.step(); await t.ctl.step(); await t.ctl.step();
   assert.equal(t.store.raw().events.length, 0);
   time = 30001;
   await t.store.set({ phase: 'SCAN' });
@@ -373,22 +373,32 @@ test('href relatif accepté, URL résolue transmise', async () => {
   assert.deepEqual(t.navs, [ORIGIN + '/football-sfootball/x-m1']);
 });
 
-test('aucun pick → événement tried et retour SCAN puis /live', async () => {
+test('aucun pick → pause obligatoire avant retour /live, pas de flood', async () => {
   const t = await armed({ answers: [] });
   const seq = [];
-  for (let i = 0; i < 5; i++) seq.push(await t.ctl.step());
-  assert.deepEqual(seq, ['SCAN', 'CHOIX', 'ANALYSE', 'SCAN', 'SCAN']);
+  for (let i = 0; i < 6; i++) seq.push(await t.ctl.step());
+  assert.deepEqual(seq, ['SCAN', 'CHOIX', 'ANALYSE', 'PAUSE', 'SCAN', 'SCAN']);
   assert.deepEqual(t.store.raw().tried, ['/football/match-1']);
   assert.equal(t.navs.at(-1), ORIGIN + '/live');
 });
 
-test('marché du pick introuvable → tried, SCAN', async () => {
+test('marché du pick introuvable → tried, PAUSE', async () => {
   const sel = require('../extension/src/auto/selector');
   const t = await armed({ deps: { selector: { ...sel, pickSelections: () => [{ marketId: 'zz', label: 'A', odds: 2, confidence: 0.8, window: null }] } } });
   const seq = [];
   for (let i = 0; i < 4; i++) seq.push(await t.ctl.step());
-  assert.deepEqual(seq, ['SCAN', 'CHOIX', 'ANALYSE', 'SCAN']);
+  assert.deepEqual(seq, ['SCAN', 'CHOIX', 'ANALYSE', 'PAUSE']);
   assert.deepEqual(t.store.raw().tried, ['/football/match-1']);
+});
+
+test('refus : motif conservé dans le panneau, pause avant toute nouvelle analyse', async () => {
+  const t = await armed({ placeResults: [{ status: 'refused', reason: 'confiance JEV insuffisante' }] });
+  for (let i = 0; i < 6; i++) await t.ctl.step();
+  assert.equal(t.store.raw().phase, 'PAUSE');
+  assert.match(t.store.raw().message, /Pari non placé : confiance JEV insuffisante/);
+  const analyzed = t.calls.filter((c) => c === 'analyze').length;
+  assert.equal(await t.ctl.step(), 'SCAN');
+  assert.equal(t.calls.filter((c) => c === 'analyze').length, analyzed);
 });
 
 test('identify none → STOPPED', async () => {
@@ -414,6 +424,7 @@ test('identify balance → STOPPED, pari « unverified » compté, réserve cons
 test('snapshot null → STOPPED sans place()', async () => {
   const t = await armed({ snapshot: null });
   assert.equal(await runUntil(t.ctl), 'STOPPED');
+  assert.match(t.store.raw().message, /Aucun pari validé/);
   assert.ok(!t.calls.includes('place'));
 });
 
@@ -434,7 +445,7 @@ test('dryRun n\'incrémente pas placed', async () => {
   assert.equal((t.store.raw().bets || []).length, 0);
 });
 
-test('dryRun : même marché simulé à nouveau après le délai, sans réserve financière', async () => {
+test('dryRun : une seule simulation puis STOPPED, aucune boucle de requêtes', async () => {
   let time = 0;
   const t = await armed({ now: () => time, arm: ['PARIER AUTO', { dryRun: true, noManualBets: true }] });
   for (let i = 0; i < 8; i++) await t.ctl.step();
@@ -442,7 +453,9 @@ test('dryRun : même marché simulé à nouveau après le délai, sans réserve 
   assert.deepEqual(t.store.raw().playedKeys, []);
   time = 30001;
   for (let i = 0; i < 8; i++) await t.ctl.step();
-  assert.equal(t.calls.filter((c) => c === 'place').length, 2);
+  assert.equal(t.calls.filter((c) => c === 'place').length, 1);
+  assert.equal(t.store.raw().phase, 'STOPPED');
+  assert.match(t.store.raw().message, /Simulation terminée/);
   assert.equal(t.guard.state.placed, 0);
   assert.equal(t.guard.state.reserved, 0);
 });
@@ -472,7 +485,7 @@ test('controller.js : ni clic, ni mot de la clé', () => {
 });
 
 test('validateConfig : pauseMs borné', () => {
-  assert.equal(CONFIG.auto.pauseMs, 5000);
+  assert.equal(CONFIG.auto.pauseMs, 30000);
   assert.equal(CONFIG.auto.maxCycles, 60);
   assert.equal(Guard.validateConfig({ ...CONFIG.auto, pauseMs: 500 }).ok, false);
   assert.equal(Guard.validateConfig({ ...CONFIG.auto, pauseMs: 70000 }).ok, false);
@@ -549,7 +562,7 @@ test('(d) même pari réel filtré dès ANALYSE, aucun second place()', async ()
     s = await t.ctl.step();
     if (t.calls.filter((c) => c === 'analyze').length === 2) break;
   }
-  assert.equal(s, 'SCAN');
+  assert.equal(s, 'PAUSE');
   assert.equal(t.calls.filter((c) => c === 'place').length, 1);
   assert.equal(t.store.raw().playedKeys.length, 1);
 });

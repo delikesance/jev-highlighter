@@ -9,8 +9,9 @@ const Decisions = require('../extension/src/auto/decisions');
 const { createController } = require('../extension/src/auto/controller');
 const { createExecutor } = require('../extension/src/auto/executor');
 
-test('cycle complet : live JEV → pari JEV → ticket → mise JEV → simulation → retour live', async () => {
-  const site = makeFakeSite();
+for (const scenario of ['dry', 'real', 'unconfirmed']) test(`cycle complet ${scenario} : mise saisie puis validation unique ou arrêt`, async () => {
+  const dryRun = scenario === 'dry';
+  const site = makeFakeSite({ noModal: scenario === 'unconfirmed' });
   site.dom.reconfigure({ url: 'https://www.betclic.fr/live' });
   let time = 0;
   const state = {};
@@ -30,7 +31,7 @@ test('cycle complet : live JEV → pari JEV → ticket → mise JEV → simulati
   const ctl = createController({
     doc: site.doc, store, cfg, tabId: 1, settings: {}, readers: Readers, sleep, now,
     scanner: { scanLive: () => [event] }, selector: require('../extension/src/auto/selector'),
-    tracker: { resolve: async () => 'pending' },
+    tracker: { resolve: async () => 'pending', snapshotOngoing: async () => [], identify: async () => ({ method: 'reference', reference: 'R1' }) },
     navigate: (url) => site.dom.reconfigure({ url }),
     parseMarkets: (doc) => Parser.parseMarkets(doc).list,
     chooseEvent: (events) => Decisions.chooseEvent(events, ask),
@@ -48,14 +49,25 @@ test('cycle complet : live JEV → pari JEV → ticket → mise JEV → simulati
       } })
   });
   assert.equal(await ctl.init(), 'IDLE');
-  await ctl.arm('PARIER AUTO', { dryRun: true, noManualBets: true });
-  for (const phase of ['SCAN', 'CHOIX', 'ANALYSE', 'GARDE', 'EXEC', 'PAUSE']) assert.equal(await ctl.step(), phase, state.reason);
+  await ctl.arm('PARIER AUTO', { dryRun, noManualBets: true });
+  for (const phase of ['SCAN', 'CHOIX', 'ANALYSE', 'GARDE', 'EXEC', scenario === 'real' ? 'ATTENTE' : 'STOPPED']) assert.equal(await ctl.step(), phase, state.reason);
   assert.deepEqual(trace, ['auto_choose_live', 'auto_choose_bet', 'auto_stake']);
   assert.equal(site.spy.oddsClicks, 1);
-  assert.equal(site.spy.betBtn, 0);
-  assert.equal(site.slipCount(), 0);
-  assert.equal(await ctl.step(), 'SCAN');
-  assert.equal(await ctl.step(), 'SCAN');
-  assert.equal(site.doc.location.pathname, '/live');
+  assert.equal(site.spy.betBtn, dryRun ? 0 : 1);
+  if (scenario === 'real') {
+    assert.equal(state.lastPlaced.stake, 0.4);
+    assert.equal(state.guardSnap.placed, 1);
+    assert.equal(site.slipCount(), 0);
+    assert.equal(await ctl.step(), 'PAUSE');
+    assert.equal(await ctl.step(), 'SCAN');
+    assert.equal(await ctl.step(), 'SCAN');
+    assert.equal(site.doc.location.pathname, '/live');
+  } else {
+    for (let i = 0; i < 10; i++) assert.equal(await ctl.step(), 'STOPPED');
+    assert.equal(trace.length, 3);
+    assert.equal(site.spy.betBtn, dryRun ? 0 : 1);
+    if (!dryRun) assert.ok(state.pending, 'validation incertaine conservée, jamais repayée');
+    else assert.equal(site.slipCount(), 0);
+  }
   site.dom.window.close();
 });
