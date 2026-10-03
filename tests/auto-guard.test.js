@@ -19,7 +19,8 @@ test('defauts CONFIG.auto', () => {
 const over = [
   ['maxStakeFraction', 0.11], ['maxLossFraction', 0.51], ['maxBets', 6], ['maxLosses', 4],
   ['minOdds', 1.19], ['maxOdds', 6.01], ['maxDriftPct', 5.1], ['minLeadSec', 59],
-  ['minConfidence', 0.49], ['confirmTimeoutMs', 15001], ['hiddenTabMs', 10001]
+  ['minConfidence', 0.49], ['confirmTimeoutMs', 15001], ['hiddenTabMs', 10001],
+  ['slipWaitMs', 10001], ['slipWaitMs', 0], ['pollMs', 49], ['pollMs', 1001]
 ];
 for (const [k, v] of over) {
   test(`refuse ${k}=${v}`, () => {
@@ -28,6 +29,10 @@ for (const [k, v] of over) {
     assert.equal(r.ok, false); assert.ok(r.errors.length >= 1);
   });
 }
+test('slipWaitMs / pollMs par défaut', () => {
+  assert.strictEqual(CONFIG.auto.slipWaitMs, 3000);
+  assert.strictEqual(CONFIG.auto.pollMs, 250);
+});
 test('accepte durcissement et valeurs limites', () => {
   const c = base(); Object.assign(c, { maxStakeFraction: 0.05, minOdds: 1.2, maxOdds: 6, maxDriftPct: 5, minLeadSec: 60, minConfidence: 0.5, confirmTimeoutMs: 15000, hiddenTabMs: 10000 });
   assert.equal(Guard.validateConfig(c).ok, true);

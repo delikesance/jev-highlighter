@@ -78,6 +78,8 @@
       minConfidence: 0.6,
       confirmTimeoutMs: 8000,
       hiddenTabMs: 5000,
+      slipWaitMs: 3000, // attente des mises à jour du ticket (Angular asynchrone), ≤ 10000
+      pollMs: 250, // pas d'interrogation du DOM, ≥ 50
       maxBets: 5,
       maxLosses: 3,
       maxLossFraction: 0.5,
