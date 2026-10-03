@@ -16,15 +16,22 @@
   };
 
   const WINDOW_RE = /\d+:\d{2}\s*[-–—]\s*\d+:\d{2}/;
-  // Textes structurels connus du ticket (tout le reste est signalé dans `unknown`).
-  const KNOWN_TEXT = [
-    '.progressiveBettingSlip_headerTitle', '.progressiveBettingSlip_cardEventName',
-    '.progressiveBettingSlip_cardMarketLabel', '.progressiveBettingSlip_cardMarketValue',
-    'betting-slip-odds-field', 'betting-slip-footer-odds', '.progressiveBettingSlip_footerLabel',
-    '.progressiveBettingSlip_footerValue', '#betBtn', '[data-qa="betting-slip-bet-button"]', 'bcdk-empty-view',
-    '.progressiveBettingSlip_headerTitle > span', '.ellipsis', '.btn_label', 'bcdk-bet-button-odds-animated',
-    'bcdk-bet-button-label', '.is-multiboost',
-  ].join(',');
+  // Textes structurels connus, ancrés à leur contexte ET à la forme attendue du texte.
+  const ODDS_RE = /^\d+(?:[.,]\d+)?$/;
+  const first = (el, ctx, sel) => { const c = el.closest(ctx); return !!c && c.querySelector(sel) === el; };
+  const KNOWN = [
+    ['.progressiveBettingSlip_cardEventName .ellipsis', (el) => first(el, '.progressiveBettingSlip_cardEventName', '.ellipsis'), () => true],
+    ['.progressiveBettingSlip_headerTitle > span', () => true, (t) => /^\s*\d+\s+sélections?\s*$/i.test(t)],
+    ['.progressiveBettingSlip_cardMarketLabel', () => true, () => true],
+    ['.progressiveBettingSlip_cardMarketValue', () => true, () => true],
+    ['.progressiveBettingSlip_footerLabel', () => true, () => true],
+    ['.progressiveBettingSlip_footerValue', () => true, () => true],
+    ['betting-slip-footer-odds .btn_label, betting-slip-odds-field .btn_label', (el) => first(el, 'betting-slip-footer-odds, betting-slip-odds-field', '.btn_label'), (t) => ODDS_RE.test(t)],
+    ['betting-slip-footer-odds bcdk-bet-button-odds-animated, betting-slip-odds-field bcdk-bet-button-odds-animated', (el) => first(el, 'betting-slip-footer-odds, betting-slip-odds-field', 'bcdk-bet-button-odds-animated'), (t) => ODDS_RE.test(t)],
+    ['#betBtn .btn_label, [data-qa="betting-slip-bet-button"] .btn_label', (el) => first(el, '#betBtn, [data-qa="betting-slip-bet-button"]', '.btn_label'), (t) => t === 'Parier'],
+    ['betting-slip-alert .is-multiboost, .alert.is-multiboost', () => true, () => true],
+  ];
+  const isKnownText = (el, own) => KNOWN.some(([sel, ctx, form]) => el.matches(sel) && ctx(el) && form(own));
 
   function collectUnknown(doc) {
     const out = [];
@@ -34,7 +41,7 @@
       let own = '';
       for (const n of el.childNodes) if (n.nodeType === 3) own += n.nodeValue;
       own = own.replace(/[\u00a0\u202f\s]+/g, ' ').trim();
-      if (own && !el.matches(KNOWN_TEXT)) out.push(own);
+      if (own && !isKnownText(el, own)) out.push(own);
       for (const c of el.children) walk(c);
     };
     for (const c of slip.children) walk(c);
