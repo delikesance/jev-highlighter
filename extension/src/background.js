@@ -23,6 +23,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'JEV_ABORT') {
     const c = controllers.get(`${tabId}:${msg.requestId}`);
+    console.log('[JEV][background]', 'abort', { tabId, requestId: msg.requestId, found: !!c });
     if (c) c.abort();
     sendResponse({ ok: true });
     return false;
@@ -34,12 +35,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const ctrl = new AbortController();
     controllers.set(key, ctrl);
     const t0 = Date.now();
+    console.log('[JEV][background]', 'request', { tabId, requestId: msg.requestId, task: msg.body && msg.body.state && msg.body.state.task, questions: Object.keys((msg.body && msg.body.questions) || {}).length, active: controllers.size });
     try {
       const settings = await Secrets.getSecretSettings();
       setDebug(settings.debug);
       const data = await Transport.evaluate(msg.body, settings, ctrl.signal);
+      console.log('[JEV][background]', 'result', { tabId, requestId: msg.requestId, elapsedMs: Date.now() - t0, answers: Object.keys((data && data.answers) || {}).length });
       sendResponse({ ok: true, data, ms: Date.now() - t0 });
     } catch (e) {
+      console.log('[JEV][background]', 'failure', { tabId, requestId: msg.requestId, elapsedMs: Date.now() - t0, code: e.code || 'unknown' });
       if (e.code !== 'aborted') error(e.code || 'error', e.message);
       sendResponse({ ok: false, error: { code: e.code || 'unknown', message: e.message } });
     } finally {

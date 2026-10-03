@@ -47,6 +47,7 @@
     // Le seul point de clic. Jamais en onglet masqué.
     function click(el) {
       if (!visible()) fail('onglet masqué au moment du clic');
+      log('executor: click', { tag: el.localName, id: el.id, target: el.getAttribute('data-qa'), label: el.textContent.trim().slice(0, 100) });
       el.click();
     }
 
@@ -72,6 +73,7 @@
           if (lab && btns.length === 1 && norm(lab.textContent) === norm(d.label)) found.push(btns[0]);
         }
       }
+      log('executor: odds candidates', { marketTitle: d.marketTitle, label: d.label, window: d.window, matches: found.length });
       if (found.length === 0) fail('marché/sélection introuvable sur la page');
       if (found.length > 1) fail(`marché ambigu (${found.length} correspondances)`);
       return found[0];
@@ -124,6 +126,7 @@
 
     function setStake(value) {
       const input = doc.querySelector('sports-betting-slip input[name=stakeField]');
+      log('executor: stake input', { amount: value, found: !!input, visible: visible(), disabled: input && input.disabled });
       if (!input) fail('champ de mise absent');
       const setter = Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value').set;
       if (!visible()) fail('onglet masqué au moment de la saisie');
@@ -152,8 +155,8 @@
       const t0 = now();
       for (;;) {
         const after = readers.readSlip(doc);
-        if (after.count === 0 && !doc.querySelector('sports-betting-slip betting-slip-selection-card')) return true;
-        if (after.count > 1 || now() - t0 >= slipWaitMs) return false;
+        if (after.count === 0 && !doc.querySelector('sports-betting-slip betting-slip-selection-card')) { log('executor: removal confirmed', { elapsedMs: now() - t0 }); return true; }
+        if (after.count > 1 || now() - t0 >= slipWaitMs) { log('executor: removal failed', { count: after.count, elapsedMs: now() - t0 }); return false; }
         await sleep(pollMs);
       }
     }
@@ -188,6 +191,7 @@
       };
 
       try {
+        log('executor: start', { execId: d && d.execId, dryRun: d && d.dryRun, event: d && d.event, marketTitle: d && d.marketTitle, label: d && d.label, analysedOdds: d && d.analysedOdds, confidence: d && d.confidence });
         if (!d || typeof d !== 'object') fail('décision absente');
         if (typeof d.marketTitle !== 'string' || typeof d.label !== 'string' || typeof d.event !== 'string') fail('décision incomplète');
         if (!(d.window === null || typeof d.window === 'string')) fail('fenêtre de la décision invalide');
@@ -201,9 +205,11 @@
         if (st.pending) fail('pari incertain non résolu (« validation en cours ») : vérification manuelle requise');
         if (!(await waitVisible())) fail('onglet masqué trop longtemps');
         const s0 = readers.readSlip(doc);
+        log('executor: initial ticket', { count: s0.count, unknown: s0.unknown, visible: visible() });
         if (s0.count !== 0) fail('ticket non vide au départ : vide-le toi-même');
         if (s0.unknown.length) fail('élément inconnu dans le ticket : ' + s0.unknown.join(' | '));
         const balance = await readers.readWalletStable(doc, sleep);
+        log('executor: wallet', { balance });
         if (!num(balance)) fail('solde illisible');
         const btn = findOddsButton(d);
         if (isSuspended(btn)) fail('marché suspendu');
@@ -211,6 +217,7 @@
         let stake = typeof deps.stakeFromTicket === 'function' ? 0.01 : guard.maxStake(d.suggestedStake);
         const proposal = (odds, bal) => ({ balance: bal, stake, odds, analysedOdds: d.analysedOdds, suspended: false, leadSec: lead(d), confidence: d.confidence });
         const pre = guard.check(proposal(btnOdds(btn), balance));
+        log('executor: guard preliminary', { proposal: proposal(btnOdds(btn), balance), verdict: pre });
         if (!pre || pre.verdict !== 'OUI') {
           if (!pre || pre.verdict === 'ARRET') fail(pre ? pre.reason : 'guard muet');
           log('refused', pre.reason);
@@ -225,6 +232,7 @@
         ctx.ours = true;
         let s = readers.readSlip(doc);
         for (const t0 = now(); s.count !== 1 && now() - t0 < slipWaitMs; s = readers.readSlip(doc)) await sleep(pollMs);
+        log('executor: ticket ready', { count: s.count, event: s.event, market: s.market, selection: s.selection, odds: s.odds, unknown: s.unknown });
         checkSlip(d, s);
 
         // Flow JEV : ticket ouvert d'abord, puis décision de mise sur solde et cote réellement lus.
@@ -232,6 +240,7 @@
           await stopCheck('mise JEV');
           const wallet = await readers.readWalletStable(doc, sleep);
           stake = guard.maxStake(await deps.stakeFromTicket({ slip: s, wallet, decision: d }));
+          log('executor: stake capped', { stake, wallet });
           await stopCheck('après mise JEV');
           if (!(stake > 0)) {
             if (!(await removeOurSelection(d))) fail('JEV ne mise pas : retrait impossible');
@@ -240,6 +249,7 @@
           s = readers.readSlip(doc);
           checkSlip(d, s);
           const sized = guard.check(proposal(s.odds, wallet));
+          log('executor: guard sized', sized);
           if (!sized || sized.verdict !== 'OUI') fail('mise JEV : ' + (sized ? sized.reason : 'garde-fous indisponibles'));
         }
 
@@ -252,6 +262,7 @@
           await sleep(pollMs);
         }
         checkSlip(d, s, stake); // cote relue après la saisie (dérive)
+        log('executor: ticket sized', { stake: s.stake, odds: s.odds, winnings: s.winnings });
 
         // 4. Mode à blanc
         if (d.dryRun) {
@@ -272,6 +283,7 @@
           pending: { marketTitle: d.marketTitle, window: d.window, stake, odds: s.odds, at: now(), reservedInSnap: true, execId: d.execId == null ? null : d.execId },
           guardSnap: guard.snapshot()
         });
+        log('executor: pending persisted', { stake, execId: d.execId, guard: guard.snapshot() });
         await stopCheck(6);
         const freshBalance = await readers.readWalletStable(doc, sleep);
         // ---- aucun await à partir d'ici jusqu'au clic ----
@@ -285,14 +297,17 @@
         // la réserve de CE pari est retirée le temps du contrôle (synchrone) pour ne pas compter sa mise deux fois
         guard.release(stake, true);
         const fin = guard.check(proposal(odds, freshBalance));
+        log('executor: guard final', { verdict: fin, balance: freshBalance, stake, odds, buttonEnabled: enabled(betBtn) });
         guard.reserve(stake);
         if (!fin || fin.verdict !== 'OUI') fail('guard (relecture finale) : ' + (fin ? fin.reason : 'muet'));
         ctx.betClicked = true;
         click(betBtn);
+        log('executor: validation sent', { stake, odds, execId: d.execId, confirmationTimeoutMs: cfg.confirmTimeoutMs });
         // ---- fin de la section synchrone ----
 
         let conf = readers.readConfirmation(doc);
         for (const t0 = now(); !conf.validated && now() - t0 < cfg.confirmTimeoutMs; conf = readers.readConfirmation(doc)) await sleep(pollMs);
+        log('executor: confirmation', { validated: conf.validated, stake: conf.stake, odds: conf.odds });
         if (!conf.validated) fail('pas de confirmation « validé » dans le délai');
         if (!num(conf.stake) || Math.abs(conf.stake - stake) > 0.001) fail(`mise de la confirmation ${conf.stake} ≠ ${stake}`);
         if (!num(conf.odds) || Math.abs(conf.odds - odds) > 0.001) fail(`cote de la confirmation ${conf.odds} ≠ ${odds}`);

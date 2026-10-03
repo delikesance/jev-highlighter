@@ -72,12 +72,13 @@
    */
   function makeMyBetsDoc(o) {
     const { doc, cfg, sleep, now } = o;
+    const log = typeof o.log === 'function' ? o.log : () => {};
     const factory = o.iframeFactory || defaultIframeFactory;
     const selectFilter = o.selectFilter;
     let current = null;
 
     const dispose = () => {
-      if (current) { try { current.remove(); } catch (e) { /* déjà retirée */ } }
+      if (current) { log('mybets: dispose'); try { current.remove(); } catch (e) { /* déjà retirée */ } }
       current = null;
     };
     const filterActive = (d, filter) => {
@@ -103,6 +104,25 @@
       el.style.cssText = 'position:fixed;left:-10000px;top:0;width:1280px;height:900px;border:0;opacity:0;pointer-events:none;';
       doc.documentElement.appendChild(el);
       const t0 = now();
+      const diagnostic = (event, error) => {
+        const info = { filter, requestedPath: path, elapsedMs: now() - t0, connected: el.isConnected, pageFound: false, componentTags: [] };
+        try {
+          const d = el.contentDocument;
+          if (d) {
+            info.readyState = d.readyState;
+            info.path = d.location && d.location.pathname;
+            info.pageFound = !!d.querySelector('my-bets-page');
+            info.cards = d.querySelectorAll('my-bets-page bet-card').length;
+            info.filterActive = filterActive(d, filter);
+            info.loaders = d.querySelectorAll(LOADER_SEL).length;
+            info.componentTags = [...new Set(Array.from(d.querySelectorAll('body *')).map((n) => n.localName).filter((n) => n.includes('-')))].slice(0, 30);
+          }
+        } catch (e) { info.readError = String(e.message || e).slice(0, 200); }
+        if (error) info.error = String(error.message || error).slice(0, 200);
+        log(event, info);
+      };
+      diagnostic('mybets: iframe created');
+      el.addEventListener('load', () => { if (current === el) diagnostic('mybets: iframe loaded'); });
       const expired = () => now() - t0 > waitMs;
       const page = () => {
         if (current !== el) throw new Error('Mes paris : iframe remplacée');
@@ -112,6 +132,7 @@
       try {
         let d;
         while (!(d = page())) { if (expired()) throw new Error('Mes paris : délai dépassé (page)'); await sleep(pollMs); }
+        diagnostic('mybets: page found');
         if (!filterActive(d, filter) && !(await selectFilter(d, filter))) throw new Error('Mes paris : filtre introuvable');
         let prev = null;
         let same = 0;
@@ -123,12 +144,13 @@
             same = sig === prev ? same + 1 : 1;
             prev = sig;
             const need = cards.length ? 2 : d.querySelector(EMPTY_SEL) ? 2 : 3;
-            if (same >= need) return d;
+            if (same >= need) { diagnostic('mybets: list stable'); return d; }
           } else { prev = null; same = 0; }
           if (expired()) throw new Error('Mes paris : filtre non confirmé ou liste instable');
           await sleep(pollMs);
         }
       } catch (e) {
+        diagnostic('mybets: timeout/error', e);
         if (current === el) dispose();
         throw e;
       }
@@ -142,7 +164,7 @@
     const M = modules;
     const store = makeSessionStore(chromeApi, tabId, now);
     const readers = M.Readers;
-    const myBets = makeMyBetsDoc({ doc, cfg, sleep, now, iframeFactory: opts.iframeFactory, selectFilter: M.Executor.selectMyBetsFilter });
+    const myBets = makeMyBetsDoc({ doc, cfg, sleep, now, log, iframeFactory: opts.iframeFactory, selectFilter: M.Executor.selectMyBetsFilter });
     const tracker = M.Tracker.createTracker({
       readers, getMyBetsDoc: myBets.getMyBetsDoc, readBalance: () => readers.readWallet(doc), sleep, cfg, log
     });

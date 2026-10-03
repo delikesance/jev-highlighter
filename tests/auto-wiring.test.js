@@ -120,9 +120,17 @@ test('getMyBetsDoc : doc frais, bon filtre, ancien iframe retiré, un seul vivan
 
 test('getMyBetsDoc : timeout => rejette et retire l\'iframe', async () => {
   const doc = hostDoc();
-  const get = Wiring.makeMyBetsDoc({ doc, cfg: cfg(), iframeFactory: factory({ never: true }), selectFilter: () => true, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now });
+  const logs = [];
+  const get = Wiring.makeMyBetsDoc({ doc, cfg: cfg(), log: (...a) => logs.push(a), iframeFactory: factory({ never: true }), selectFilter: () => true, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now });
   await assert.rejects(get.getMyBetsDoc('ongoing'));
   assert.equal(doc.querySelectorAll('iframe').length, 0);
+  const timeout = logs.find(([label]) => label === 'mybets: timeout/error');
+  assert.ok(timeout, 'état iframe indispensable au diagnostic');
+  assert.equal(timeout[1].filter, 'ongoing');
+  assert.equal(timeout[1].pageFound, false);
+  assert.ok(timeout[1].elapsedMs >= 200);
+  assert.ok(Array.isArray(timeout[1].componentTags));
+  assert.doesNotMatch(JSON.stringify(timeout), /outerHTML|cookie|Authorization/);
 });
 
 test('getMyBetsDoc : filtre non cliquable => rejette', async () => {
