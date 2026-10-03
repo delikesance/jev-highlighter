@@ -6,7 +6,10 @@
   const J = root.JEV;
   if (!J || J.__contentStarted) return;
   J.__contentStarted = true;
-  const { CONFIG, log, warn, setDebug, debounce, parseMarkets, buildRequest, matchAnswers, toPlain, Highlighter, Storage } = J;
+  const {
+    CONFIG, log, warn, setDebug, debounce, normalizeText, parseMarkets, buildRequest, matchAnswers, toPlain,
+    readWallet, readSlip, slipFingerprint, suggestStake, Highlighter, StakeUI, Storage
+  } = J;
 
   const st = {
     settings: { ...Storage.DEFAULTS },
@@ -146,9 +149,96 @@
   };
   const scheduleTick = debounce(tick, CONFIG.debounceMs);
 
+  // ------------------------------------------------------------------ suggestion de mise
+
+  const stakeState = { fp: null, runId: 0, requestId: null };
+
+  function abortStake() {
+    stakeState.runId++;
+    if (stakeState.requestId != null) send({ type: 'JEV_ABORT', requestId: stakeState.requestId }).catch(() => {});
+    stakeState.requestId = null;
+  }
+
+  /** Préférence JEV connue pour une sélection du ticket (si elle a été analysée sur la page). */
+  function jevPreferenceFor(sel) {
+    const choice = normalizeText(sel.selection);
+    const market = normalizeText(sel.market);
+    const rec = st.recs.find((r) => {
+      const title = normalizeText(r.marketTitle);
+      return normalizeText(r.choice) === choice && (title === market || title.includes(market) || market.includes(title));
+    });
+    return rec ? { jev_preference: rec.jevScore, jev_confidence: rec.confidence } : { jev_preference: null, jev_confidence: null };
+  }
+
+  async function stakeTick() {
+    if (!st.settings.stakeAdvice) {
+      abortStake();
+      stakeState.fp = null;
+      StakeUI.hide();
+      return;
+    }
+    const wallet = readWallet(document);
+    const slip = readSlip(document);
+    if (!wallet || !slip.selections.length || !slip.totalOdds || !slip.stakeInput) {
+      abortStake();
+      stakeState.fp = null;
+      StakeUI.hide();
+      return;
+    }
+    const fp = slipFingerprint(wallet, slip);
+    if (fp === stakeState.fp) {
+      StakeUI.reposition();
+      return;
+    }
+    if (Date.now() < st.cooldownUntil) {
+      setTimeout(scheduleStake, st.cooldownUntil - Date.now());
+      return;
+    }
+
+    abortStake();
+    stakeState.fp = fp;
+    const runId = stakeState.runId;
+    const ctx = {
+      wallet,
+      totalOdds: slip.totalOdds,
+      selections: slip.selections.map((s) => ({ ...s, ...jevPreferenceFor(s) }))
+    };
+    log(`Stake sizing: wallet ${wallet}, ${ctx.selections.length} selection(s), odds ${ctx.totalOdds}`);
+    StakeUI.showStatus('calcul de la mise…', slip.stakeInput);
+
+    const ask = async (body) => {
+      if (runId !== stakeState.runId) throw Object.assign(new Error('aborted'), { code: 'aborted' });
+      const requestId = ++st.seq;
+      stakeState.requestId = requestId;
+      log(`Sending stake question (round ${body.state.round})`);
+      const res = await send({ type: 'JEV_EVALUATE', requestId, body });
+      if (runId !== stakeState.runId) throw Object.assign(new Error('aborted'), { code: 'aborted' });
+      if (!res || !res.ok) {
+        const e = (res && res.error) || { code: 'unknown', message: 'Réponse vide' };
+        throw Object.assign(new Error(e.message), { code: e.code });
+      }
+      return res.data.answers;
+    };
+
+    try {
+      const result = await suggestStake(ctx, ask);
+      if (runId !== stakeState.runId) return;
+      log(result.none ? `Stake: none (${result.reason})` : `Stake suggestion: ${result.amount} EUR`);
+      StakeUI.show(result, ctx, slip.stakeInput);
+    } catch (e) {
+      if (e.code === 'aborted' || runId !== stakeState.runId) return;
+      if (e.code === 'rate_limited') st.cooldownUntil = Date.now() + CONFIG.cooldownAfterRateLimitMs;
+      log(`Stake error: ${e.code || ''} ${e.message}`);
+      StakeUI.showStatus(`erreur : ${e.message}`, slip.stakeInput, true);
+    }
+  }
+  const scheduleStake = debounce(stakeTick, CONFIG.stake.debounceMs);
+
   const stripJev = (s) => (s || '').split(/\s+/).filter((c) => c && !c.startsWith('jev-')).sort().join(' ');
   const isOwnNode = (n) => n.nodeType === 1 && (n.classList.contains(Highlighter.CLS.badge) || n.classList.contains(Highlighter.CLS.overlay));
   function isOwnMutation(m) {
+    const t = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+    if (t && t.closest(`.${Highlighter.CLS.overlay}`)) return true; // tout ce qui est dans notre calque
     if (m.type === 'attributes') return m.attributeName === 'class' && stripJev(m.oldValue) === stripJev(m.target.getAttribute('class'));
     if (m.type === 'childList') return [...m.addedNodes, ...m.removedNodes].every(isOwnNode);
     return false;
@@ -157,6 +247,7 @@
   const observer = new MutationObserver((muts) => {
     if (muts.every(isOwnMutation)) return;
     scheduleTick();
+    scheduleStake();
   });
   observer.observe(document.documentElement, {
     childList: true,
@@ -220,10 +311,15 @@
     st.settings = s;
     setDebug(s.debug);
     scheduleTick();
+    scheduleStake();
   });
   Storage.onSettingsChanged((patch) => {
     Object.assign(st.settings, patch);
     if ('debug' in patch) setDebug(patch.debug);
     if (patch.autoAnalyze) scheduleTick();
+    if ('stakeAdvice' in patch) {
+      stakeState.fp = null;
+      scheduleStake();
+    }
   });
 })(globalThis);

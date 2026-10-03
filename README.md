@@ -59,3 +59,11 @@ Ouvrir `http://localhost:8787/`, popup → Configuration : mode dev, clé quelco
 - Marchés Oui/Non envoyés en `choice` (matching fiable) ; `CONFIG.useNoulForYesNo = true` pour utiliser `noul`.
 - Si le DOM change pendant la requête (fingerprint différent), le résultat est écarté et une nouvelle analyse est planifiée.
 - Sélecteur de marché suspendu (`CONFIG.selectors.suspended`) : valeur supposée, à adapter.
+
+## Suggestion de mise (selon le solde)
+Quand le ticket contient une sélection, l'extension lit le solde (`CONFIG.selectors.wallet`) et le ticket
+(`CONFIG.selectors.slip`), puis affine la mise par tranches : JEV choisit une tranche parmi plusieurs
+(« Ne pas miser », 0–1 €, 1–2 €, …), la tranche choisie est redécoupée (0,10 €), puis encore (0,01 €) : 3 requêtes max.
+Le montant s'affiche dans un panneau au-dessus du champ de mise (avec « Copier »). **Le champ de mise n'est jamais rempli
+automatiquement** et aucun pari n'est lancé. Réglages dans `CONFIG.stake` (tranches, tours, plafond en % du solde,
+mise minimale) ; case « Suggestion de mise » dans le popup. C'est la préférence du modèle, pas une garantie de gain.
