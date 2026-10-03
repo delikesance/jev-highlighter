@@ -396,31 +396,30 @@
     if (tabId == null) { warn('Mode Auto : identifiant d\'onglet indisponible'); return; }
 
     const askJev = async (body) => {
-      const res = await send({ type: 'JEV_EVALUATE', requestId: ++st.seq, body });
+      const res = await send({ type: 'JEV_EVALUATE', requestId: ++st.seq, body: { model: CONFIG.JEV.model, ...body } });
       if (!res || !res.ok) {
         const e = (res && res.error) || { code: 'unknown', message: 'Réponse vide' };
         throw Object.assign(new Error(e.message), { code: e.code });
       }
       return res.data.answers;
     };
-    // Marchés déjà dédupliqués et filtrés par le contrôleur : requête + matching existants, sans surlignage.
-    async function analyzeAuto(markets) {
-      const parsed = { list: markets, markets: new Map(markets.map((m) => [m.id, m])) };
+    async function chooseEvent(events) {
+      alog('JEV : choix du live', events.length);
+      return A.Decisions.chooseEvent(events, askJev);
+    }
+    async function analyzeAuto(markets, ctx) {
       const matchKey = MatchContext.keyFromPath(location.pathname);
       const matchContext = matchKey && st.settings.matchContext ? MatchContext.peek(matchKey) : null;
-      const built = buildRequest(parsed, { pageTitle: document.title, pagePath: location.pathname, matchContext });
-      if (!built.questionCount) return [];
-      const answers = await askJev(built.body);
-      return matchAnswers(parsed.markets, answers, { expectedIds: built.sentIds }).recommendations;
+      alog('JEV : choix du pari', markets.length);
+      return A.Decisions.choosePick(markets, { event: ctx && ctx.event, match_context: matchContext }, askJev);
     }
-    async function stakeFor(info) {
-      const pick = info && info.pick;
-      const wallet = await A.Readers.readWalletStable(document, sleep);
-      if (!pick || typeof wallet !== 'number' || !(pick.odds > 0)) return null;
+    async function stakeFromTicket({ slip, wallet, decision }) {
+      if (typeof wallet !== 'number' || !(slip.odds > 0)) return null;
+      alog('JEV : choix de la mise', { wallet, odds: slip.odds });
       const ctx = {
         wallet,
-        totalOdds: pick.odds,
-        selections: [{ market: pick.marketTitle, selection: pick.label, odds: pick.odds, jev_preference: null, jev_confidence: pick.confidence }],
+        totalOdds: slip.odds,
+        selections: [{ event: slip.event, market: slip.market, selection: slip.selection, odds: slip.odds, jev_preference: null, jev_confidence: decision.confidence }],
         matchContext: null
       };
       const r = await suggestStake(ctx, askJev);
@@ -429,7 +428,7 @@
 
     const rt = A.Wiring.createRuntime({
       chromeApi: chrome, doc: document, tabId, settings: st.settings, cfg: CONFIG.auto, modules: A, now, sleep, log: alog,
-      analyze: analyzeAuto, stakeFor, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
+      chooseEvent, analyze: analyzeAuto, stakeFromTicket, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
     });
     auto.rt = rt;
     const status = async () => ({ ...(await rt.store.get()), balance: A.Readers.readWallet(document) });

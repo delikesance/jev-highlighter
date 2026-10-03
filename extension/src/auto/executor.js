@@ -207,7 +207,8 @@
         if (!num(balance)) fail('solde illisible');
         const btn = findOddsButton(d);
         if (isSuspended(btn)) fail('marché suspendu');
-        const stake = guard.maxStake(d.suggestedStake);
+        // Avant ouverture : seule une mise minimale sert au contrôle préliminaire ; JEV décide ensuite.
+        let stake = typeof deps.stakeFromTicket === 'function' ? 0.01 : guard.maxStake(d.suggestedStake);
         const proposal = (odds, bal) => ({ balance: bal, stake, odds, analysedOdds: d.analysedOdds, suspended: false, leadSec: lead(d), confidence: d.confidence });
         const pre = guard.check(proposal(btnOdds(btn), balance));
         if (!pre || pre.verdict !== 'OUI') {
@@ -225,6 +226,22 @@
         let s = readers.readSlip(doc);
         for (const t0 = now(); s.count !== 1 && now() - t0 < slipWaitMs; s = readers.readSlip(doc)) await sleep(pollMs);
         checkSlip(d, s);
+
+        // Flow JEV : ticket ouvert d'abord, puis décision de mise sur solde et cote réellement lus.
+        if (typeof deps.stakeFromTicket === 'function') {
+          await stopCheck('mise JEV');
+          const wallet = await readers.readWalletStable(doc, sleep);
+          stake = guard.maxStake(await deps.stakeFromTicket({ slip: s, wallet, decision: d }));
+          await stopCheck('après mise JEV');
+          if (!(stake > 0)) {
+            if (!(await removeOurSelection(d))) fail('JEV ne mise pas : retrait impossible');
+            return { status: 'refused', reason: 'JEV : ne pas miser' };
+          }
+          s = readers.readSlip(doc);
+          checkSlip(d, s);
+          const sized = guard.check(proposal(s.odds, wallet));
+          if (!sized || sized.verdict !== 'OUI') fail('mise JEV : ' + (sized ? sized.reason : 'garde-fous indisponibles'));
+        }
 
         // 3. Mise (Angular asynchrone : on attend que mise et gains reflètent la saisie)
         await stopCheck(3);

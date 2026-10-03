@@ -89,6 +89,23 @@ function setup(o = {}) {
 
 const ARM = ['PARIER AUTO', { dryRun: false, noManualBets: true }];
 
+test('flow JEV : live choisi par JEV, marché hors Fast accepté, mise différée au ticket', async () => {
+  const second = { ...EVENT, href: '/football/second', name: 'C - D' };
+  const calls = [];
+  const t = await armed({ events: [EVENT, second], markets: [MARKETS[1]], answers: [{ marketId: 'm2', choice: 'A', confidence: 0.8 }], deps: {
+    chooseEvent: async (events) => { calls.push('live'); return events[1]; },
+    ticketSizing: true,
+    stakeFor: async () => { throw new Error('mise demandée avant ticket'); }
+  } });
+  await t.ctl.step(); await t.ctl.step();
+  assert.equal(await t.ctl.step(), 'ANALYSE');
+  assert.equal(t.store.raw().event.href, second.href);
+  assert.equal(await t.ctl.step(), 'GARDE');
+  assert.equal(t.store.raw().pick.marketId, 'm2');
+  assert.equal(await t.ctl.step(), 'EXEC');
+  assert.deepEqual(calls, ['live']);
+});
+
 test('match sans pick : réanalyse après 30 secondes, pas exclusion permanente', async () => {
   let time = 0;
   const t = await armed({ answers: [], now: () => time });
