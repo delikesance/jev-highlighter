@@ -40,7 +40,9 @@
         market: '.progressiveBettingSlip_cardMarketValue', // le marché (ex. "Résultat du match")
         odds: 'betting-slip-odds-field .btn_label',
         footerOdds: 'betting-slip-footer-odds .btn_label',
-        stakeInput: 'input[name="stakeField"], betting-slip-stake-field input, input[placeholder="Mise"]'
+        stakeInput: 'input[name="stakeField"], betting-slip-stake-field input, input[placeholder="Mise"]',
+        // zones dont les changements doivent relancer la suggestion de mise (ticket + solde)
+        watchRoots: 'sports-betting-slip, bc-header-wallets'
       }
     },
 
@@ -61,7 +63,8 @@
       maxRounds: 3, // ex. solde 5,90 € : tranches de 1 € -> 0,10 € -> 0,01 €
       maxFractionOfWallet: 1, // plafond de mise = fraction du solde (1 = tout le solde)
       minStake: 0.1,
-      debounceMs: 1500
+      debounceMs: 1500,
+      debounceMaxWaitMs: 3000
     },
 
     // Textes envoyés à JEV (génériques, aucun marché codé en dur).
@@ -82,6 +85,7 @@
 
     // Dynamique
     debounceMs: 1200,
+    debounceMaxWaitMs: 5000, // exécution forcée même si le DOM bouge sans arrêt (page live)
     minIntervalMs: 3000, // intervalle minimal entre deux requêtes automatiques
     cooldownAfterRateLimitMs: 30000,
     cacheMaxEntries: 20,

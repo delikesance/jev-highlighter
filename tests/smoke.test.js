@@ -175,5 +175,23 @@ test('smoke : contexte désactivé ou indisponible -> l\'analyse fonctionne quan
   assert.equal(none.doc.querySelector('iframe'), null, 'iframe caché toujours retiré');
 });
 
+test('smoke : page live bruyante + ticket qui apparaît plus tard -> l\'assistant de mise s\'affiche quand même', async () => {
+  const slip = fs.readFileSync(path.join(__dirname, 'fixture-slip.html'), 'utf8').replace('</body>', '<div id="noise">0</div></body>');
+  const { w, doc } = boot(slip, { stakeAdvice: true });
+  const card = doc.querySelector('betting-slip-selection-card');
+  const parent = card.parentNode;
+  card.remove(); // pas encore de sélection dans le ticket
+  await wait(50);
+  // bruit continu hors ticket (chrono vidéo, scores…) : toutes les 80 ms
+  let n = 0;
+  const noise = w.setInterval(() => { doc.getElementById('noise').textContent = String(++n); }, 80);
+  await wait(300);
+  parent.prepend(card); // l'utilisateur ajoute une sélection
+  await wait(2600); // anti-rebond 1,5 s + 3 tours
+  w.clearInterval(noise);
+  assert.ok(doc.querySelector('jev-stake'), 'module de mise présent malgré le bruit');
+  assert.match(doc.querySelector('jev-stake').shadowRoot.querySelector('.stake__amount').textContent, /\d,\d\d/);
+});
+
 // fermeture des fenêtres jsdom (timers/observers) pour que le process puisse se terminer
 test('cleanup', () => open.forEach((c) => c()));
