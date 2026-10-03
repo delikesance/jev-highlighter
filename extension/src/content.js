@@ -80,6 +80,11 @@
     refreshUI(parsed);
   }
 
+  /** Mode debug : le corps exact envoyé à JEV (aucune clé : elle n'existe que dans le service worker). */
+  function logPrompt(label, body) {
+    log(`Prompt sent to JEV [${label}]:\n${JSON.stringify(body, null, 2)}`);
+  }
+
   async function analyze({ force = false } = {}) {
     const parsed = parseMarkets(document);
     st.stats = parsed.stats;
@@ -130,6 +135,7 @@
     refreshUI(parsed);
     st.lastSentAt = Date.now();
     log(`Sending ${built.questionCount} questions`);
+    logPrompt('analysis', built.body);
 
     let res;
     try {
@@ -265,6 +271,7 @@
       const requestId = ++st.seq;
       stakeState.requestId = requestId;
       log(`Sending stake question (round ${body.state.round})`);
+      logPrompt(`stake round ${body.state.round}`, body);
       const res = await send({ type: 'JEV_EVALUATE', requestId, body });
       if (runId !== stakeState.runId) throw Object.assign(new Error('aborted'), { code: 'aborted' });
       if (!res || !res.ok) {
