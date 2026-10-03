@@ -10,8 +10,8 @@
     const q = t.match(/\bQ\s*([1-4])\b/i);
     if (p && !/^fin\b/i.test(t)) out.period = `MT ${p[1]}`;
     else if (q && !/^fin\b/i.test(t)) out.period = `Q${q[1]}`;
-    const add = t.match(/(\d+)\s*\+\s*(\d+)\s*'/);
-    const min = t.match(/(\d+)\s*'/);
+    const add = t.match(/(\d+)\s*\+\s*(\d+)\s*['\u2019\u2032]/);
+    const min = t.match(/(\d+)\s*['\u2019\u2032]/);
     const cd = t.match(/(\d+):(\d{2})/);
     if (add) out.elapsedSec = (+add[1] + +add[2]) * 60;
     else if (min) out.elapsedSec = +min[1] * 60;
@@ -22,19 +22,23 @@
 
   function parseWindow(text) {
     const m = norm(text).match(/(\d+):(\d{2})\s*[-–—]\s*(\d+):(\d{2})/);
-    return m ? { startSec: +m[1] * 60 + +m[2], endSec: +m[3] * 60 + +m[4] } : null;
+    if (!m) return null;
+    const w = { startSec: +m[1] * 60 + +m[2], endSec: +m[3] * 60 + +m[4] };
+    return w.startSec > w.endSec ? null : w;
   }
 
   function leadSeconds(clock, win) {
     if (!clock || !clock.running) return null;
-    if (win && clock.elapsedSec !== null) return win.startSec - clock.elapsedSec;
+    if (win) return clock.elapsedSec !== null ? win.startSec - clock.elapsedSec : null;
     if (clock.remainingSec !== null) return clock.remainingSec;
     const end = PERIOD_END[clock.period];
     return end !== undefined && clock.elapsedSec !== null ? end - clock.elapsedSec : null;
   }
 
   function parseMoney(text) {
-    const m = norm(text).replace(/ /g, '').match(/(\d+(?:[.,]\d+)?)/);
+    const n = norm(text);
+    if (n.includes('.')) return null;
+    const m = n.replace(/ /g, '').match(/(\d+(?:[.,]\d+)?)/);
     if (!m) return null;
     const v = parseFloat(m[1].replace(',', '.'));
     return Number.isFinite(v) ? v : null;
