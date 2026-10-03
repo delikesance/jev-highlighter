@@ -1,5 +1,7 @@
 /**
  * Exécuteur de pari (spec §3 ter, §5, §5 bis). SEUL module autorisé à cliquer / saisir / valider.
+ * Seule extension non-pari du périmètre de clic : selectMyBetsFilter (filtres « En cours » / « Terminés » de « Mes paris »,
+ * dans l'iframe cachée du suivi, liste blanche fermée de deux sélecteurs exacts).
  * Fail-closed : toute vérification en échec, toute exception, tout doute => ARRÊT (halt), jamais de relance.
  */
 (function (root) {
@@ -280,7 +282,20 @@
 
     return { place };
   }
-  const api = { createExecutor };
+  // Filtres « Mes paris » autorisés : liste blanche fermée, sélecteurs exacts. Aucun autre élément n'est jamais cliqué.
+  const MY_BETS_FILTERS = Object.freeze({
+    ongoing: 'my-bets-page [data-qa="my-bets-filter-ongoing"]',
+    ended: 'my-bets-page [data-qa="my-bets-filter-ended"]'
+  });
+  function selectMyBetsFilter(doc, filter) {
+    if (typeof filter !== 'string' || !Object.prototype.hasOwnProperty.call(MY_BETS_FILTERS, filter)) return false;
+    const btn = doc && typeof doc.querySelector === 'function' ? doc.querySelector(MY_BETS_FILTERS[filter]) : null;
+    if (!btn || btn.tagName !== 'BUTTON') return false;
+    btn.click();
+    return true;
+  }
+
+  const api = { createExecutor, selectMyBetsFilter };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else ((root.JEV = root.JEV || {}).Auto = root.JEV.Auto || {}).Executor = api;
 })(globalThis);

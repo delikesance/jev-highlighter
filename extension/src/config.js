@@ -87,6 +87,8 @@
       maxLosses: 3,
       maxLossFraction: 0.5,
       maxStakeFraction: 0.1,
+      myBetsPath: '/mes-paris', // page « Mes paris » (même origine), chargée dans une iframe cachée pour le suivi
+      myBetsWaitMs: 10000, // attente bornée de « Mes paris » dans l'iframe, ≤ 20000
       // Marchés « rapides » autorisés : motifs sur le titre du marché (minuscules).
       quickMarkets: {
         football: [

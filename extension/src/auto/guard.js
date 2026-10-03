@@ -54,6 +54,11 @@
     need('pauseMs', 1000, 60000);
     need('maxCycles', 1, 200);
     if (num(cfg.maxCycles) && !Number.isInteger(cfg.maxCycles)) errors.push('maxCycles : entier requis');
+    need('myBetsWaitMs', 1, 20000);
+    const mp = cfg.myBetsPath;
+    if ((typeof mp !== 'string' || !mp.startsWith('/') || mp.includes('//') || mp.includes('\\') || mp.includes(':'))) {
+      errors.push('myBetsPath : chemin relatif « /… » requis (sans //, \\ ni :)');
+    }
     const qm = cfg.quickMarkets;
     if (!qm || typeof qm !== 'object' || Array.isArray(qm)) errors.push('quickMarkets : objet requis');
     else {
