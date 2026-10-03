@@ -56,34 +56,68 @@ test('quickMarkets: liste blanche par titre, sport inconnu => []', () => {
   assert.deepStrictEqual(quickMarkets(markets, 'football', c2).map((m) => m.id), ['resultat']);
 });
 test('pickSelections: retenue valide, label/odds/window depuis le Market', () => {
-  const r = pickSelections([rec('prochain_but', 'Canada', 0.8)], markets, cfg);
+  const r = pickSelections([rec('prochain_but', 'Canada', 0.8)], markets, cfg, 'football');
   assert.deepStrictEqual(r, [{ marketId: 'prochain_but', label: 'Canada', odds: 2.1, confidence: 0.8, window: '0-10 min' }]);
 });
 test('pickSelections: choice normalisé (accents/casse)', () => {
-  const r = pickSelections([rec('prochain_but', 'perou', 0.7)], markets, cfg);
+  const r = pickSelections([rec('prochain_but', 'perou', 0.7)], markets, cfg, 'football');
   assert.strictEqual(r[0].label, 'Pérou');
 });
 test('pickSelections: confidence null/NaN/chaîne/basse refusée', () => {
   for (const c of [null, NaN, '0.9', undefined, 0.59]) {
-    assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Canada', c)], markets, cfg), []);
+    assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Canada', c)], markets, cfg, 'football'), []);
   }
 });
 test('pickSelections: libellé inconnu ou marché inconnu ignoré', () => {
-  assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Brésil', 0.9)], markets, cfg), []);
-  assert.deepStrictEqual(pickSelections([rec('inconnu', 'Canada', 0.9)], markets, cfg), []);
+  assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Brésil', 0.9)], markets, cfg, 'football'), []);
+  assert.deepStrictEqual(pickSelections([rec('inconnu', 'Canada', 0.9)], markets, cfg, 'football'), []);
 });
 test('pickSelections: cote hors bornes refusée (la cote du Market, pas celle du matcher)', () => {
-  assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Aucun', 0.9)], markets, cfg), []);
-  assert.deepStrictEqual(pickSelections([rec('corners', 'Moins', 0.9)], markets, cfg), []);
+  assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Aucun', 0.9)], markets, cfg, 'football'), []);
+  assert.deepStrictEqual(pickSelections([rec('corners', 'Moins', 0.9)], markets, cfg, 'football'), []);
 });
 test('pickSelections: marché hors liste blanche refusé, option indisponible refusée', () => {
-  assert.deepStrictEqual(pickSelections([rec('resultat', 'Canada', 0.9)], markets, cfg), []);
+  assert.deepStrictEqual(pickSelections([rec('resultat', 'Canada', 0.9)], markets, cfg, 'football'), []);
   const m = [mk('corners', 'Corners', [opt('Plus', 1.8, false)])];
-  assert.deepStrictEqual(pickSelections([rec('corners', 'Plus', 0.9)], m, cfg), []);
+  assert.deepStrictEqual(pickSelections([rec('corners', 'Plus', 0.9)], m, cfg, 'football'), []);
 });
 test('pickSelections: entrées invalides sans exception', () => {
-  assert.deepStrictEqual(pickSelections(undefined, markets, cfg), []);
-  assert.deepStrictEqual(pickSelections([], markets, cfg), []);
-  assert.deepStrictEqual(pickSelections([{}, null, { choice: 'x' }, 5], markets, cfg), []);
+  assert.deepStrictEqual(pickSelections(undefined, markets, cfg, 'football'), []);
+  assert.deepStrictEqual(pickSelections([], markets, cfg, 'football'), []);
+  assert.deepStrictEqual(pickSelections([{}, null, { choice: 'x' }, 5], markets, cfg, 'football'), []);
   assert.deepStrictEqual(pickSelections([rec('corners', 'Plus', 0.9)], undefined, cfg), []);
+});
+
+test('pickSelections: sport obligatoire (fail-closed)', () => {
+  const a = [rec('prochain_but', 'Canada', 0.8)];
+  for (const sp of [undefined, '', null, 5, 'tennis', 'other']) assert.deepStrictEqual(pickSelections(a, markets, cfg, sp), []);
+});
+test('pickSelections: bornes exactes (cfg personnalisé)', () => {
+  const c = { minOdds: 1.5, maxOdds: 3, minConfidence: 0.7, quickMarkets: { football: [/corner/] } };
+  const one = (odds, conf) => pickSelections([rec('c', 'Plus', conf)], [mk('c', 'Corners', [opt('Plus', odds)])], c, 'football').length;
+  assert.strictEqual(one(2, 0.7), 1);
+  assert.strictEqual(one(2, 0.6999), 0);
+  assert.strictEqual(one(1.5, 0.9), 1);
+  assert.strictEqual(one(1.4999, 0.9), 0);
+  assert.strictEqual(one(3, 0.9), 1);
+  assert.strictEqual(one(3.0001, 0.9), 0);
+});
+const bk = [
+  mk('pp', 'Prochain panier', [opt('Lakers', 1.9), opt('Celtics', 2.0)]),
+  mk('qt', 'Total du quart-temps', [opt('Plus', 1.8), opt('Moins', 1.9)]),
+  mk('res', 'Vainqueur du match', [opt('Lakers', 1.5)])
+];
+test('basket: quickMarkets et pickSelections', () => {
+  assert.deepStrictEqual(quickMarkets(bk, 'basketball', cfg).map((m) => m.id), ['pp', 'qt']);
+  const r = pickSelections([rec('pp', 'Lakers', 0.8), rec('qt', 'Plus', 0.8), rec('res', 'Lakers', 0.9)], bk, cfg, 'basketball');
+  assert.deepStrictEqual(r.map((p) => p.marketId), ['pp', 'qt']);
+  assert.deepStrictEqual(pickSelections([rec('pp', 'Lakers', 0.8)], bk, cfg, 'football'), []);
+});
+test('pickSelections: doublons par marketId, le premier gagne', () => {
+  const r = pickSelections([rec('prochain_but', 'Canada', 0.8), rec('prochain_but', 'Pérou', 0.9)], markets, cfg, 'football');
+  assert.deepStrictEqual(r.map((p) => p.label), ['Canada']);
+});
+test('pickEvent: égalité quickCount et elapsed départagée par index', () => {
+  const evs = [ev('z', { index: 5 }), ev('y', { index: 2 }), ev('w', { index: 9 })];
+  assert.strictEqual(pickEvent(evs, new Set(), () => 2).href, 'y');
 });
