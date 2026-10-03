@@ -91,6 +91,12 @@
         const uncertain = st.pending ? [{ ref: null, status: 'unverified', stake: st.pending.stake, event: st.pending.marketTitle || null, execId: st.pending.execId || null }] : [];
         const patch = { phase: 'ARMED', bets: [...bets, ...uncertain], stopped: false, reason: null, message: null, dryRun: o.dryRun, ownerTabId: tabId,
           pending: null, event: null, pick: null, before: null };
+        // Migration des anciennes simulations qui bloquaient leurs clés comme de vrais paris.
+        if (st.dryRun === true && !st.pending && !st.lastPlaced && !bets.length && (!st.guardSnap || st.guardSnap.placed === 0)) {
+          patch.playedKeys = [];
+          patch.tried = [];
+          patch.retryAfter = {};
+        }
         let sb = st.session && st.session.startBalance;
         if (sb == null) {
           // Lu UNE seule fois par session, jamais relu.
@@ -127,7 +133,11 @@
       return true;
     }
 
-    const markTried = (st, href) => set({ tried: [...(st.tried || []), href] });
+    const cooldown = (st, href) => ({
+      tried: Array.from(new Set([...(st.tried || []), href])),
+      retryAfter: { ...(st.retryAfter || {}), [href]: deps.now() + 30000 }
+    });
+    const markTried = (st, href) => set(cooldown(st, href));
 
     async function resolveBets(st) {
       const bets = Array.isArray(st.bets) ? st.bets : [];
@@ -195,7 +205,14 @@
         if (doc.location.pathname !== LIVE_HREF) return (await go(LIVE_HREF)) ? 'SCAN' : 'STOPPED';
         await resolveBets(st);
         if (await endRules(st)) return 'STOPPED';
-        const tried = new Set(st.tried || []);
+        // `tried` devient un délai de réanalyse, jamais une exclusion à vie.
+        // Les clés de paris exécutés restent séparées et ne sont jamais effacées ici.
+        const retryAfter = { ...(st.retryAfter || {}) };
+        const time = deps.now();
+        const tried = new Set((st.tried || []).filter((href) => {
+          if (!Number.isFinite(retryAfter[href])) retryAfter[href] = time + 30000;
+          return retryAfter[href] > time;
+        }));
         const all = (scanner.scanLive(doc) || []).filter(Boolean);
         const scanSummary = { total: all.length, tried: 0, sport: 0, paused: 0 };
         for (const e of all) {
@@ -204,7 +221,7 @@
           else if (tried.has(e.href)) scanSummary.tried++;
         }
         const events = all.filter((e) => !tried.has(e.href));
-        await set({ phase: 'CHOIX', events, scanSummary, message: null, cycles: (st.cycles || 0) + 1 });
+        await set({ phase: 'CHOIX', events, tried: [...tried], retryAfter, scanSummary, message: null, cycles: (st.cycles || 0) + 1 });
         return 'CHOIX';
       },
       async CHOIX(st) {
@@ -212,7 +229,7 @@
         if (!event) {
           const summary = st.scanSummary;
           const message = summary
-            ? `Aucun nouveau candidat : ${summary.total} détecté(s), ${summary.tried} déjà tenté(s), ${summary.paused} en pause/non démarré(s), ${summary.sport} hors sport Auto. Nouvelle recherche après la pause.`
+            ? `Recherche : ${summary.total} détecté(s), ${summary.tried} déjà tenté(s) en attente de réanalyse, ${summary.paused} en pause/non démarré(s), ${summary.sport} hors sport Auto. Nouvelle recherche après la pause.`
             : 'Aucun événement en cours éligible : nouvelle recherche après la pause.';
           log(message);
           await set({ phase: 'PAUSE', events: null, message });
@@ -237,8 +254,15 @@
         }
         if (await store.stopFlag()) return 'STOPPED';
         const matches = markets.length ? await deps.analyze(markets, { event }) : [];
-        const picks = selector.pickSelections(matches, markets, cfg, event.sport);
-        const p = picks[0];
+        const ranked = [...matches].sort((a, b) => {
+          const score = (m) => Number.isFinite(m.jevScore) ? m.jevScore : Number.isFinite(m.confidence) ? m.confidence : -1;
+          return score(b) - score(a);
+        });
+        const picks = selector.pickSelections(ranked, markets, cfg, event.sport);
+        const p = picks.find((pick) => {
+          const market = markets.find((m) => m.id === pick.marketId);
+          return market && !(st.playedKeys || []).includes(playKey(event, { ...pick, marketTitle: market.title }));
+        });
         const m = p && markets.find((x) => x.id === p.marketId);
         if (!p || !m || typeof m.title !== 'string') return giveUp(st, event.href);
         await set({ phase: 'GARDE', pick: { ...p, marketTitle: m.title } });
@@ -251,11 +275,10 @@
         const stake = guard.maxStake(await deps.stakeFor({ event: st.event, pick: st.pick }));
         if (!(stake > 0)) return giveUp(st, st.event.href);
         // Avant tout appel à l'exécuteur : événement tried et clé jouée persistés, lastPlaced remis à zéro.
-        const tried = st.tried || [];
         // execId : identifiant d'exécution persistant (compteur), recopié par l'exécuteur dans pending et lastPlaced.
         const execSeq = (Number.isInteger(st.execSeq) ? st.execSeq : 0) + 1;
         await set({ phase: 'EXEC', stake, execSeq, execId: `exec-${execSeq}`, lastPlaced: null, before: null,
-          tried: tried.includes(st.event.href) ? tried : [...tried, st.event.href], playedKeys: [...(st.playedKeys || []), key] });
+          ...cooldown(st, st.event.href), playedKeys: [...(st.playedKeys || []), key] });
         return 'EXEC';
       },
       async EXEC(st) {
@@ -284,7 +307,10 @@
         }
         if (r && r.status === 'placed') { await set({ phase: 'ATTENTE', placedStake: r.stake }); return 'ATTENTE'; }
         if (!r || r.status === 'halt') { await stop((r && r.reason) || 'arrêt de l\'exécuteur'); return 'STOPPED'; }
-        await set({ phase: 'PAUSE', pick: null, event: null });
+        const patch = { phase: 'PAUSE', pick: null, event: null, ...cooldown(st, st.event.href) };
+        // Une simulation confirmée n'est pas un pari réel : elle peut être rejouée après réanalyse.
+        if (r.status === 'dry') patch.playedKeys = (st.playedKeys || []).filter((key) => key !== playKey(st.event, st.pick));
+        await set(patch);
         log(r.status === 'dry' ? 'pari à blanc' : 'pari refusé', r.reason);
         return 'PAUSE';
       },
