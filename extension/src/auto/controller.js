@@ -133,11 +133,10 @@
       const bets = Array.isArray(st.bets) ? st.bets : [];
       const open = bets.filter((b) => b.status === 'pending');
       if (!open.length) return;
-      const stakes = open.map((b) => b.stake);
       const out = [];
       for (const b of bets) {
         if (b.status !== 'pending') { out.push(b); continue; }
-        const r = b.ref ? await tracker.resolve(b.ref) : tracker.resolveByBalance(b.prevBalance, stakes);
+        const r = b.ref ? await tracker.resolve(b.ref) : 'pending';
         if (r === 'won' || r === 'lost') {
           guard.recordResult(r);
           if (!b.released) guard.release(b.stake);
@@ -177,9 +176,10 @@
       if (Array.isArray(st.before)) { await set({ phase: 'ATTENTE', placedStake: lp.stake }); return 'ATTENTE'; }
       const prevBalance = await readers.readWalletStable(doc, sleep);
       if (typeof prevBalance !== 'number') { await stop('pari repris sans référence et solde illisible : vérifier Mes paris + solde'); return 'STOPPED'; }
-      const bet = { ref: null, method: 'balance', stake: lp.stake, status: 'pending', event: lp.event, prevBalance };
-      await set({ phase: 'PAUSE', bets: [...(st.bets || []), bet], before: null, pick: null, event: null });
-      return 'PAUSE';
+      const bet = { ref: null, method: 'balance', stake: lp.stake, status: 'unverified', event: lp.event, prevBalance };
+      await set({ bets: [...(st.bets || []), bet], before: null, pick: null, event: null });
+      await stop('suivi impossible : vérifier Mes paris + solde');
+      return 'STOPPED';
     }
 
     async function giveUp(st, href) {
@@ -267,11 +267,15 @@
       async ATTENTE(st) {
         const id = await tracker.identify(st.before || []);
         if (!id || id.method === 'none') { await stop('pari placé non identifié : vérifier Mes paris + solde'); return 'STOPPED'; }
-        const bet = { ref: id.reference || null, method: id.method, stake: st.placedStake, status: 'pending', event: st.event.name };
-        if (!bet.ref) {
-          bet.prevBalance = await readers.readWalletStable(doc, sleep);
-          if (typeof bet.prevBalance !== 'number') { await stop('pari sans référence et solde illisible : vérifier Mes paris + solde'); return 'STOPPED'; }
+        if (id.method !== 'reference' || !id.reference) {
+          // Pas de référence : le pari n'est pas suivable. Il reste compté (réserve bloquée), la session s'arrête.
+          const prevBalance = await readers.readWalletStable(doc, sleep);
+          const ub = { ref: null, method: id.method, stake: st.placedStake, status: 'unverified', event: st.event.name, prevBalance: typeof prevBalance === 'number' ? prevBalance : null };
+          await set({ bets: [...(st.bets || []), ub], before: null, pick: null, event: null });
+          await stop('suivi impossible : vérifier Mes paris + solde');
+          return 'STOPPED';
         }
+        const bet = { ref: id.reference, method: id.method, stake: st.placedStake, status: 'pending', event: st.event.name };
         await set({ phase: 'PAUSE', bets: [...(st.bets || []), bet], before: null, pick: null, event: null });
         return 'PAUSE';
       },

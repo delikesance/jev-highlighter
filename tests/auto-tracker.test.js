@@ -61,19 +61,33 @@ test('resolve: statut unknown -> pending', async () => {
   const fake = { ...readers, readMyBets: () => [{ id: 'x', reference: '42', status: 'unknown' }] };
   assert.strictEqual(await mk({ readers: fake }).resolve('42'), 'pending');
 });
-test('resolveByBalance', () => {
-  assert.strictEqual(mk({ readBalance: () => 95 }).resolveByBalance(100, 5), 'lost');
-  assert.strictEqual(mk({ readBalance: () => 94 }).resolveByBalance(100, 5), 'lost');
-  assert.strictEqual(mk({ readBalance: () => 97 }).resolveByBalance(100, 5), 'unknown');
-  assert.strictEqual(mk({ readBalance: () => 100 }).resolveByBalance(100, 5), 'unknown');
-  assert.strictEqual(mk({ readBalance: () => 120 }).resolveByBalance(100, 5), 'unknown');
-  assert.strictEqual(mk({ readBalance: () => null }).resolveByBalance(100, 5), 'unknown');
-  assert.strictEqual(mk({ readBalance: () => 95 }).resolveByBalance('x', 5), 'unknown');
-  assert.strictEqual(mk({ readBalance: () => 95 }).resolveByBalance(100, 0), 'unknown');
+test('resolveByBalance ne conclut jamais', () => {
+  for (const [bal, prev, st] of [[95, 100, 5], [94, 100, 5], [100, 100, 5], [120, 100, 5], [null, 100, 5], [95, 'x', 5], [95, 100, [5]], [95, 100, 0]]) {
+    assert.strictEqual(mk({ readBalance: () => bal }).resolveByBalance(prev, st), 'unknown');
+  }
+});
+const cardNoRef = (qa) => '<bet-card data-qa="' + qa + '"><div data-qa="bet-card-stake">1 €</div></bet-card>';
+const docOf = (html) => new JSDOM('<html><body>' + html + '</body></html>').window.document;
+test('snapshot qui échoue -> null', async () => {
+  assert.strictEqual(await mk({ getMyBetsDoc: async () => { throw new Error('x'); } }).snapshotOngoing(), null);
+});
+test('carte sans référence nouvelle seule -> balance', async () => {
+  const t = mk({ getMyBetsDoc: async () => docOf(cardNoRef('c1')) });
+  assert.deepStrictEqual(await t.identify([]), { method: 'balance' });
+});
+test('carte sans référence + carte avec référence nouvelles -> balance', async () => {
+  const withRef = '<bet-card data-qa="c2"><span data-qa="bet-card-reference">777</span></bet-card>';
+  const t = mk({ getMyBetsDoc: async () => docOf(cardNoRef('c1') + withRef) });
+  assert.deepStrictEqual(await t.identify([]), { method: 'balance' });
+});
+test('snapshot représente une carte sans référence par id:<data-qa>', async () => {
+  const t = mk({ getMyBetsDoc: async () => docOf(cardNoRef('c1')) });
+  assert.deepStrictEqual(await t.snapshotOngoing(), ['id:c1']);
+  assert.deepStrictEqual(await t.identify(['id:c1']), { method: 'balance' });
 });
 test('getMyBetsDoc qui lève -> valeurs sûres', async () => {
   const t = mk({ getMyBetsDoc: async () => { throw new Error('x'); } });
-  assert.deepStrictEqual(await t.snapshotOngoing(), []);
+  assert.deepStrictEqual(await t.snapshotOngoing(), null);
   assert.deepStrictEqual(await t.identify(['a']), { method: 'balance' });
   assert.strictEqual(await t.resolve('1'), 'pending');
   const t2 = mk({ getMyBetsDoc: async () => { throw new Error('x'); }, readBalance: () => { throw new Error('y'); } });
