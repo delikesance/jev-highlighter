@@ -23,6 +23,7 @@
       marketBox: '[data-qa="market-box"]',
       title: '[data-qa="market-title"]',
       titleText: '.marketBox_headTitleWrapper',
+      marketHandler: '.marketBox_marketHandler',
       line: '.marketBox_lineSelection',
       label: '.marketBox_label',
       button: '[data-qa="market-selection"]',
