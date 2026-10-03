@@ -20,21 +20,22 @@
     const avail = market.options.filter((o) => o.available);
     if (avail.length < 2) return null;
     const T = CONFIG.templates;
+    const title = market.window ? `${market.title} (fenêtre : ${market.window})` : market.title;
 
     const yn = CONFIG.useNoulForYesNo ? findYesNo(market) : null;
     if (yn) {
       return {
         type: 'noul',
-        instructions: T.instructions(market.title),
+        instructions: T.instructions(title),
         criteria: {
-          true: T.criterion(market.title, yn.yes.name),
-          false: T.criterion(market.title, yn.no.name)
+          true: T.criterion(title, yn.yes.name),
+          false: T.criterion(title, yn.no.name)
         }
       };
     }
     const criteria = {};
-    for (const o of avail) criteria[o.key] = T.criterion(market.title, o.name);
-    return { type: 'choice', instructions: T.instructions(market.title), criteria };
+    for (const o of avail) criteria[o.key] = T.criterion(title, o.name);
+    return { type: 'choice', instructions: T.instructions(title), criteria };
   }
 
   /**
