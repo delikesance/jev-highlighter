@@ -146,3 +146,20 @@ test('lecture seule: DOM inchangé', () => {
     assert.strictEqual(d.documentElement.outerHTML, before);
   }
 });
+
+test('unknown: textes cachés dans un nœud connu (sous-arbre non sauté)', () => {
+  assert.deepStrictEqual(slipWith((d) => { d.querySelector('.progressiveBettingSlip_cardMarketValue').insertAdjacentHTML('beforeend', '<span>Suspendu</span>'); }), ['Suspendu']);
+  assert.deepStrictEqual(slipWith((d) => { d.querySelector('#betBtn').insertAdjacentHTML('beforeend', '<div class="alert">Err bouton</div>'); }), ['Err bouton']);
+  assert.deepStrictEqual(slipWith((d) => { d.querySelector('betting-slip-footer-odds').insertAdjacentHTML('beforeend', '<i>Modifiée</i>'); }), ['Modifiée']);
+  const e = new JSDOM(fs.readFileSync(path.join(__dirname, 'fixture-slip-empty.html'), 'utf8')).window.document;
+  e.querySelector('bcdk-empty-view').innerHTML = '<p>Erreur vide</p>';
+  assert.deepStrictEqual(R.readSlip(e).unknown, ['Erreur vide']);
+});
+test('multiboost contenant une alerte: erreur signalée', () => {
+  assert.deepStrictEqual(slipWith((d) => { d.querySelector('sports-betting-slip').insertAdjacentHTML('beforeend', '<div class="is-multiboost wrap">Booste<div class="alert">Err</div></div>'); }), ['Err']);
+});
+test('fixtures réelles du ticket: unknown vide', () => {
+  for (const f of ['fixture-slip-one.html', 'fixture-slip-empty.html', 'fixture-slip.html']) {
+    assert.deepStrictEqual(R.readSlip(load(f)).unknown, [], f);
+  }
+});
