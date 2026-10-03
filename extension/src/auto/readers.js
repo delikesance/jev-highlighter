@@ -18,10 +18,17 @@
   const WINDOW_RE = /\d+:\d{2}\s*[-–—]\s*\d+:\d{2}/;
   // Textes structurels connus, ancrés à leur contexte ET à la forme attendue du texte.
   const ODDS_RE = /^\d+(?:[.,]\d+)?$/;
+  const EMPTY_SLIP_COPY = new Set(['Place un nouveau pari', 'On croise les doigts pour toi !']);
+  const selectionCount = (t) => /^\d+\s+s[eé]lections?$/i.test(t);
   const first = (el, ctx, sel) => { const c = el.closest(ctx); return !!c && c.querySelector(sel) === el; };
   const KNOWN = [
     ['.progressiveBettingSlip_cardEventName .ellipsis', (el) => first(el, '.progressiveBettingSlip_cardEventName', '.ellipsis'), () => true],
-    ['.progressiveBettingSlip_headerTitle > span', () => true, (t) => /^\s*\d+\s+sélections?\s*$/i.test(t)],
+    ['.progressiveBettingSlip_headerTitle > span', () => true, selectionCount],
+    // Le site rend parfois le compteur sans le <span> habituel (locale anglaise / rendu Angular transitoire).
+    ['.progressiveBettingSlip_headerTitle', () => true, selectionCount],
+    // Copie informative du ticket VIDE, reconnue textuellement et seulement dans bcdk-empty-view.
+    ['bcdk-empty-view *', (el) => !!el.closest('bcdk-empty-view'), (t) => EMPTY_SLIP_COPY.has(t)],
+    ['betting-slip-footer *', (el) => !!el.closest('betting-slip-footer'), (t) => t === 'Gains possibles'],
     ['.progressiveBettingSlip_cardMarketLabel', () => true, () => true],
     ['.progressiveBettingSlip_cardMarketValue', () => true, () => true],
     ['.progressiveBettingSlip_footerLabel', () => true, () => true],

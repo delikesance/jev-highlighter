@@ -16,6 +16,14 @@ test('readSlip: ticket vide', () => {
   assert.strictEqual(s.odds, null);
   assert.strictEqual(s.stake, null);
 });
+test('readSlip: ticket vide — textes informatifs réels ne sont pas des alertes', () => {
+  const d = load('fixture-slip-empty.html');
+  d.querySelector('.progressiveBettingSlip_headerTitle').textContent = '0 selection';
+  d.querySelector('bcdk-empty-view').innerHTML = '<p>Place un nouveau pari</p><p>On croise les doigts pour toi !</p>';
+  d.querySelector('betting-slip-footer').insertAdjacentHTML('afterbegin', '<p>Gains possibles</p>');
+  assert.strictEqual(R.readSlip(d).count, 0);
+  assert.deepStrictEqual(R.readSlip(d).unknown, []);
+});
 test('readSlip: une sélection', () => {
   const s = R.readSlip(load('fixture-slip-one.html'));
   assert.strictEqual(s.count, 1);
