@@ -69,7 +69,7 @@ test('suggestStake : « ne pas miser », solde trop bas, réponse invalide', asy
   await assert.rejects(suggestStake(ctx, async () => ({ stake_round_1: { choice: '9,00 à 9,99 €' } })), /invalide/);
 });
 
-test('suggestStake : jamais all-in (plafond 10 % du solde, réduit sur les grosses cotes)', async () => {
+test('suggestStake : jamais all-in (plafond dur 10 % du solde, JEV arbitre le risque)', async () => {
   const seen = [];
   const ask = async (body) => {
     const [id, q] = Object.entries(body.questions)[0];
@@ -79,6 +79,6 @@ test('suggestStake : jamais all-in (plafond 10 % du solde, réduit sur les gross
   };
   const r = await suggestStake({ wallet: 100, totalOdds: 2, selections: [] }, ask);
   assert.ok(r.amount <= 10, `montant ${r.amount}`);
-  const combo = await suggestStake({ wallet: 100, totalOdds: 12, selections: [] }, ask);
-  assert.ok(combo.amount <= 2.5, `combiné ${combo.amount}`); // 10 % × 3/12
+  const risky = await suggestStake({ wallet: 100, totalOdds: 12, selections: [] }, ask);
+  assert.ok(risky.amount <= 10, `cote haute ${risky.amount}`); // JEV décide du risque, plafond dur inchangé
 });
