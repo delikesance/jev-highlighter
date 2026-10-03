@@ -27,7 +27,9 @@ test('ids distincts et stables selon la fenêtre, indépendants de l ordre', () 
   const boxes = [...sec.querySelectorAll('sports-markets-single-market')];
   sec.prepend(boxes[1]);
   const r2 = parseMarkets(d2).list.filter((x) => x.title === R);
-  assert.deepEqual(r2.map((x) => x.id).sort(), r1.map((x) => x.id).sort());
+  const map = (l) => Object.fromEntries(l.map((x) => [x.window, x.id]));
+  assert.deepEqual(map(r2), map(r1));
+  assert.equal(map(r2)['30:00 - 34:59'], 'resultat_sur_la_periode_seule_30_00_34_59');
 });
 
 test('dedupeMarkets: même marché dans 2 sections -> un seul', () => {
@@ -43,4 +45,18 @@ test('la question JEV inclut la fenêtre', () => {
   const m = parseMarkets(doc()).list.find((x) => x.title === R);
   const q = buildQuestion(m);
   assert.match(JSON.stringify(q), /fenêtre : 30:00 - 34:59/);
+});
+
+test('titre long (>80 car.) avec deux fenêtres : ids distincts et stables', () => {
+  const long = 'Un titre de marché vraiment très long ' + 'x'.repeat(60) + ' sur la période (seule)';
+  const build = (order) => {
+    const d = new JSDOM(html).window.document;
+    const boxes = [...d.querySelectorAll('[data-section="a"] sports-markets-single-market')].slice(0, 2);
+    boxes.forEach((b) => (b.querySelector('.marketBox_headTitleWrapper').textContent = long));
+    if (order) boxes[1].parentNode.prepend(boxes[1]);
+    return Object.fromEntries(parseMarkets(d).list.filter((m) => m.title === long).map((m) => [m.window, m.id]));
+  };
+  const a = build(false), b = build(true);
+  assert.notEqual(a['30:00 - 34:59'], a['35:00 - 39:59']);
+  assert.deepEqual(a, b);
 });

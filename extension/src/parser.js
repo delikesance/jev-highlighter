@@ -21,12 +21,12 @@
     const title = textOf(box.querySelector(S.titleText) || box.querySelector(S.title));
     if (!title) return { skip: 'no-title' };
 
-    let window = null;
+    let timeWindow = null;
     const handler = box.querySelector(S.marketHandler);
     if (handler) {
       const clone = handler.cloneNode(true);
       clone.querySelectorAll('button, .linkWrapper').forEach((n) => n.remove());
-      window = textOf(clone) || null;
+      timeWindow = textOf(clone) || null;
     }
 
     const suspended = !!(box.closest(S.suspended) || box.querySelector(S.suspended));
@@ -55,9 +55,9 @@
     if (!options.length) return { skip: 'no-options' };
 
     const fingerprint = hash(
-      [title, window || '', ...options.map((o) => `${o.key}:${o.odds}:${o.available ? 1 : 0}`)].join('|')
+      [title, timeWindow || '', ...options.map((o) => `${o.key}:${o.odds}:${o.available ? 1 : 0}`)].join('|')
     );
-    return { market: { title, window, options, suspended, fingerprint, element: box, container } };
+    return { market: { title, window: timeWindow, options, suspended, fingerprint, element: box, container } };
   }
 
   /**
@@ -79,7 +79,7 @@
       }
       const m = r.market;
       // ID déterministe depuis le titre ; en cas de doublon : empreinte des options, puis compteur.
-      let id = slugify(m.window ? `${m.title} ${m.window}` : m.title);
+      let id = m.window ? `${slugify(m.title)}_${slugify(m.window)}` : slugify(m.title);
       if (markets.has(id)) id = `${id}_${hash(m.options.map((o) => o.key).join('|')).slice(0, 4)}`;
       for (let i = 2; markets.has(id); i++) id = `${id.replace(/_\d+$/, '')}_${i}`;
       m.id = id;
@@ -102,7 +102,7 @@
     };
   }
 
-  /** Retire les marchés identiques (titre, fenêtre, libellés des options), en gardant le premier. */
+  /** Retire les marchés identiques (titre, fenêtre, libellés des options), en gardant le premier. La clé ignore volontairement les cotes. */
   function dedupeMarkets(markets) {
     const seen = new Set();
     return markets.filter((m) => {
