@@ -42,6 +42,7 @@
     for (const r of m.recommendations)
       log(`${r.marketId} -> ${r.choice} (${typeof r.jevScore === 'number' ? r.jevScore.toFixed(2) : 'n/a'})`);
     if (!Highlighter.isUpToDate(m.recommendations, m.best)) Highlighter.apply(m.recommendations, m.best);
+    else Highlighter.reposition();
     st.recs = m.recommendations;
     st.best = m.best;
     st.analysed = Object.keys(entry.answers).length;
@@ -146,7 +147,7 @@
   const scheduleTick = debounce(tick, CONFIG.debounceMs);
 
   const stripJev = (s) => (s || '').split(/\s+/).filter((c) => c && !c.startsWith('jev-')).sort().join(' ');
-  const isOwnNode = (n) => n.nodeType === 1 && n.classList.contains(Highlighter.CLS.badge);
+  const isOwnNode = (n) => n.nodeType === 1 && (n.classList.contains(Highlighter.CLS.badge) || n.classList.contains(Highlighter.CLS.overlay));
   function isOwnMutation(m) {
     if (m.type === 'attributes') return m.attributeName === 'class' && stripJev(m.oldValue) === stripJev(m.target.getAttribute('class'));
     if (m.type === 'childList') return [...m.addedNodes, ...m.removedNodes].every(isOwnNode);
