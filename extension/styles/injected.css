@@ -11,13 +11,16 @@
   box-shadow: 0 0 16px 4px rgba(250, 204, 21, 0.65) !important;
 }
 
-.jev-anchor {
-  position: relative !important;
+.jev-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  overflow: visible;
 }
 
 .jev-badge {
   position: absolute;
-  z-index: 2147483000;
   display: inline-flex;
   align-items: center;
   gap: 5px;
