@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "JEV Highlighter",
   "version": "0.1.0",
-  "description": "Analyse les marchés visibles sur la page avec JEV et met en évidence les sélections préférées. Ne place jamais de pari automatiquement.",
+  "description": "Analyse les marchés visibles sur la page avec JEV et met en évidence les sélections préférées. Un mode Auto optionnel (désactivé par défaut, réservé aux experts) peut placer des paris ; sinon l'extension ne parie jamais.",
   "minimum_chrome_version": "110",
   "permissions": [
     "storage",
@@ -36,6 +36,16 @@
         "src/picks.js",
         "src/reorder.js",
         "src/stake-ui.js",
+        "src/auto/clock.js",
+        "src/auto/guard.js",
+        "src/auto/scanner.js",
+        "src/auto/selector.js",
+        "src/auto/readers.js",
+        "src/auto/executor.js",
+        "src/auto/tracker.js",
+        "src/auto/controller.js",
+        "src/auto/wiring.js",
+        "src/auto/auto-ui.js",
         "src/content.js"
       ],
       "css": [

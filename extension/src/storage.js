@@ -15,7 +15,8 @@
     reorderPicks: false,
     dockOpen: true,
     dockCollapsed: false,
-    debug: false
+    debug: false,
+    autoMode: false // mode Auto (expert) : désactivé par défaut ; faux => aucun code Auto ne s'exécute
   };
 
   const isSecretKey = (k) => k.toLowerCase() === 'api' + 'key';

@@ -257,3 +257,9 @@ test('myBetsPath / myBetsWaitMs : défauts valides, valeurs dangereuses refusée
   for (const w of [0, 20001, NaN]) assert.equal(Guard.validateConfig({ ...base(), myBetsWaitMs: w }).ok, false, String(w));
   assert.equal(Guard.validateConfig({ ...base(), myBetsWaitMs: 20000 }).ok, true);
 });
+
+test('stepMs : défaut 1500, borné 500..10000', () => {
+  assert.strictEqual(CONFIG.auto.stepMs, 1500);
+  for (const v of [499, 10001]) { const c = base(); c.stepMs = v; assert.equal(Guard.validateConfig(c).ok, false, String(v)); }
+  for (const v of [500, 10000]) { const c = base(); c.stepMs = v; assert.equal(Guard.validateConfig(c).ok, true, String(v)); }
+});
