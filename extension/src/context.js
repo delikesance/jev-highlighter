@@ -25,7 +25,7 @@
 
   /** Onglet « Live » : statistiques du match en cours. */
   function parseLive(doc) {
-    if (!doc.querySelector('.sr-general-statistics')) return null;
+    if (!doc.querySelector('.sr-general-statistics')) return parseLiveFootball(doc);
     const stats = [];
     for (const w of qa(doc, '.sr-general-statistics__statstypes-wrapper')) {
       const labels = q(w, '.sr-general-statistics__labels');
@@ -80,7 +80,7 @@
 
   /** Onglet « Performances » : probabilité Sportradar, face-à-face, forme, derniers matchs. */
   function parseHeadToHead(doc) {
-    if (!doc.querySelector('.sr-hth')) return null;
+    if (!doc.querySelector('.sr-hth')) return parseHeadToHeadFootball(doc);
     const holders = qa(doc, '.sr-hth-0-previous-meetings__pm-count-holder').map((h) => t(q(h, '.sr-hth-0-previous-meetings__pm-count')));
     const wp = (side) => num(t(q(doc, `.sr-win-probability__odds-labels-number-${side} .sr-win-probability__odds-labels-number-value`)));
     const averages = qa(doc, '.sr-hth-0-teamsaverages__item')
@@ -104,7 +104,7 @@
 
   /** Onglet « Classement ». Les équipes du match portent la classe `srt-base-1-is-active`. */
   function parseStandings(doc) {
-    if (!doc.querySelector('.sr-livetable')) return null;
+    if (!doc.querySelector('.sr-livetable')) return parseStandingsFootball(doc);
     const rows = qa(doc, '.sr-livetable__tableRow.srm-dataRow').map((tr) => {
       const td = qa(tr, 'td');
       return {
@@ -129,6 +129,91 @@
     };
   }
 
+
+  // ---- Markup « natif » du bookmaker (football) : <sports-match-center-live|performance|standing>, classes matchCenter_*
+
+  /** Onglet « Live » (football) : probabilité de victoire affichée + statistiques en barres duel. */
+  function parseLiveFootball(doc) {
+    const root = q(doc, 'sports-match-center-live');
+    if (!root) return null;
+    const names = qa(root, '.matchCenter_scoreboardContestantName').map(t);
+    const label = (side) => num(t(q(root, `.matchCenter_divergingDiagramBarLabel.is-${side}`)));
+    const stats = qa(root, '.matchCenter_duelDiagram')
+      .map((d) => ({
+        name: t(q(d, '.matchCenter_duelDiagramBarTitle')),
+        home: t(q(d, '.matchCenter_duelDiagramBar.is-home .matchCenter_duelDiagramBarLabel')),
+        away: t(q(d, '.matchCenter_duelDiagramBar.is-away .matchCenter_duelDiagramBarLabel'))
+      }))
+      .filter((x) => x.name && (x.home || x.away));
+    const win = { home: label('home'), draw: label('draw'), away: label('away') };
+    const hasWin = Object.values(win).some((v) => v != null);
+    if (!stats.length && !hasWin) return null;
+    return { home: names[0] || '', away: names[1] || '', period: '', win_probability: hasWin ? win : null, stats };
+  }
+
+  /** Onglet « Performances » (football) : forme (V/N/D) et derniers matchs de l'équipe SÉLECTIONNÉE dans le filtre. */
+  function parseHeadToHeadFootball(doc) {
+    const root = q(doc, 'sports-match-center-performance');
+    if (!root) return null;
+    const team = t(q(doc, 'sports-match-center-container .filters_item.isActive .filters_label'));
+    const rec = (k) => num(t(q(root, `.matchCenter_divergingDiagramBarLabel.is-${k}`)));
+    const matches = qa(root, '.matchCenter_eventCard')
+      .slice(0, 10)
+      .map((c) => {
+        const n = qa(c, '.matchCenter_scoreboardContestantName').map(t);
+        const sc = qa(c, '.matchCenter_scoreboardScoreWrapper').map(t);
+        return {
+          date: t(q(c, '.matchCenter_eventDate')),
+          competition: t(q(c, '.marquee_content')),
+          result: t(q(c, '.matchCenter_eventStart .tag_label')), // V / N / D
+          home: n[0] || '',
+          away: n[1] || '',
+          score: `${sc[0] ?? ''}-${sc[1] ?? ''}`
+        };
+      });
+    const record = { wins: rec('wins'), draws: rec('draws'), losses: rec('losses') };
+    if (!matches.length && Object.values(record).every((v) => v == null)) return null;
+    const played = Object.values(record).reduce((a, v) => a + (v || 0), 0) || matches.length;
+    return {
+      win_probability: null,
+      previous_meetings: null,
+      head_to_head_averages: [],
+      team_form: [{ team, competition: '', position: null, played, win_pct: null, record, per_quarter: {} }],
+      last_matches: [{ team, matches }]
+    };
+  }
+
+  /** Fusionne la forme de deux équipes (une lecture par équipe sélectionnée dans le filtre). */
+  function mergeH2h(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    return { ...a, team_form: [...a.team_form, ...b.team_form], last_matches: [...a.last_matches, ...b.last_matches] };
+  }
+
+  /** Onglet « Classement » (football) : un tableau par groupe ; on isole celui qui contient les équipes du match. */
+  function parseStandingsFootball(doc) {
+    const root = q(doc, 'sports-match-center-standing');
+    if (!root) return null;
+    const groups = qa(root, 'sports-ranking-table')
+      .map((tb) => ({
+        name: t(q(tb, '.standingTable_titleLabel')),
+        rows: qa(tb, 'tbody .standingTable_row').map((tr) => {
+          const c = qa(tr, '.standingTable_cell').map(t);
+          return { position: num(c[0]), team: c[1], played: num(c[2]), points: num(c[3]), record: c[4], goals: c[5], is_match_team: tr.classList.contains('is-highlighted') };
+        })
+      }))
+      .filter((g) => g.rows.length);
+    if (!groups.length) return null;
+    const g = groups.find((x) => x.rows.some((r) => r.is_match_team)) || groups[0];
+    return {
+      competition: g.name,
+      teams_count: g.rows.length,
+      match_teams: g.rows.filter((r) => r.is_match_team).map(({ is_match_team, ...r }) => r),
+      leader: { team: g.rows[0].team, wins: num((g.rows[0].record || '').split(':')[0]), played: g.rows[0].played },
+      table: g.rows.length <= 8 ? g.rows.map(({ is_match_team, ...r }) => r) : null
+    };
+  }
+
   function parseAll(doc) {
     const parts = { live: parseLive(doc), h2h: parseHeadToHead(doc), standings: parseStandings(doc) };
     return Object.values(parts).some(Boolean) ? parts : null;
@@ -144,11 +229,11 @@
     const out = {
       teams: names && names.filter(Boolean).length === 2 ? names : null,
       competition: (standings && standings.competition) || (h2h && h2h.team_form[0] && h2h.team_form[0].competition) || null,
-      sportradar_win_probability_pct: h2h ? h2h.win_probability : null,
+      sportradar_win_probability_pct: (h2h && h2h.win_probability) || (live && live.win_probability) || null,
       previous_meetings: h2h ? h2h.previous_meetings : null,
-      standings: standings ? { teams_count: standings.teams_count, match_teams: standings.match_teams, leader: standings.leader } : null,
+      standings: standings ? { teams_count: standings.teams_count, match_teams: standings.match_teams, leader: standings.leader, ...(standings.table ? { table: standings.table } : {}) } : null,
       form: h2h
-        ? h2h.team_form.map((f) => ({ team: f.team, position: f.position, played: f.played, win_pct: f.win_pct, per_quarter: f.per_quarter }))
+        ? h2h.team_form.map((f) => ({ team: f.team, position: f.position, played: f.played, win_pct: f.win_pct, ...(f.record ? { record: f.record } : {}), per_quarter: f.per_quarter }))
         : null,
       last_matches: h2h
         ? h2h.last_matches.map((l) => ({ team: l.team, matches: l.matches.map((m) => `${m.result} ${m.home} ${m.score} ${m.away} (${m.competition})`) }))
@@ -171,7 +256,7 @@
   }
 
   if (isNode) {
-    module.exports = { parseLive, parseHeadToHead, parseStandings, parseAll, compactContext, keyFromPath };
+    module.exports = { parseLive, parseHeadToHead, parseStandings, parseAll, compactContext, keyFromPath, mergeH2h };
     return;
   }
 
@@ -261,6 +346,19 @@
         }
         if (!el.classList.contains('isActive')) el.click(); // onglet de l'iframe CACHÉ uniquement
         parts[tab.part] = await waitFor(() => tab.ready(doc), CONFIG.context.tabMs);
+        if (parts[tab.part] && tab.part === 'h2h' && doc.querySelector('sports-match-center-performance')) {
+          // football : le filtre n'affiche qu'UNE équipe à la fois ; on lit aussi l'autre (clic dans l'iframe caché uniquement)
+          const other = [...doc.querySelectorAll('sports-match-center-container .filters_item')].find((li) => !li.classList.contains('isActive'));
+          if (other) {
+            const first = parts.h2h.team_form[0].team;
+            other.click();
+            const second = await waitFor(() => {
+              const p = parseHeadToHeadFootball(doc);
+              return p && p.team_form[0].team && p.team_form[0].team !== first ? p : null;
+            }, CONFIG.context.tabMs);
+            if (second) parts.h2h = mergeH2h(parts.h2h, second);
+          }
+        }
         if (parts[tab.part]) log(`Match context: tab ${tab.part} parsed`);
         else {
           // aide au diagnostic : classes Sportradar présentes + début du texte affiché (autre sport = autre balisage)
