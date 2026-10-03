@@ -9,8 +9,8 @@
       endpoint: 'https://api.typesafe.ai/v1/systemone',
       authHeaderName: 'Authorization',
       authScheme: 'Bearer', // header = `${authScheme} ${apiKey}` ; mettre '' pour envoyer la clé seule
-      // À CONFIRMER : nom exact du modèle (ex. "jev-1.13.0"). null => champ `model` omis de la requête.
-      model: null,
+      // `model` est OBLIGATOIRE (sinon 422). "jev-latest" = alias documenté ; voir https://docs.typesafe.ai/models.md
+      model: 'jev-latest',
       maxQuestionsPerRequest: 100, // À CONFIRMER : la doc ne fixe pas de limite ; on découpe au-delà.
       timeoutMs: 20000,
       maxRetries: 2, // retries sur 429 / 529 uniquement

@@ -32,7 +32,7 @@ tests/ (node:test + jsdom, fixture.html, mock-server.js)   backend-example/serve
 
 ## Où configurer JEV
 - **Valeurs par défaut** : `extension/src/config.js` → `CONFIG.JEV` (endpoint `https://api.typesafe.ai/v1/systemone`,
-  header `Authorization: Bearer <clé>`). **À confirmer** : `model` (laissé à `null` = champ omis ; ex. `"jev-1.13.0"`)
+  header `Authorization: Bearer <clé>`). **À confirmer** : `model` (défaut `"jev-latest"`, obligatoire côté API)
   et `maxQuestionsPerRequest`.
 - **Popup → Configuration** : mode, clé, endpoint (surcharge), URL du backend. Stocké dans `chrome.storage.local`.
 - Sélecteurs du bookmaker, textes des questions, seuil `minScore`, délais : `config.js`.
