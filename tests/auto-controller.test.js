@@ -89,6 +89,30 @@ function setup(o = {}) {
 
 const ARM = ['PARIER AUTO', { dryRun: false, noManualBets: true }];
 
+test('ANALYSE attend les marchés après un rendu Angular tardif', async () => {
+  let reads = 0;
+  let clock = 0;
+  const t = await armed({ deps: {
+    parseMarkets: () => ++reads < 3 ? [] : MARKETS,
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; }
+  } });
+  await t.ctl.step(); await t.ctl.step(); await t.ctl.step();
+  assert.equal(await t.ctl.step(), 'GARDE');
+  assert.equal(reads, 3);
+});
+
+test('STOP pendant PAUSE reste STOPPED sans être remplacé par SCAN', async () => {
+  const t = await armed({ events: [] });
+  await t.ctl.step(); await t.ctl.step(); await t.ctl.step();
+  t.deps.sleep = async () => { await t.ctl.stop('STOP pendant pause'); };
+  // sleep est capturé à la construction : crée une nouvelle instance avec la même session.
+  const resumed = setup({ store: t.store, deps: { sleep: t.deps.sleep } });
+  await resumed.ctl.init();
+  assert.equal(await resumed.ctl.step(), 'STOPPED');
+  assert.equal(t.store.raw().phase, 'STOPPED');
+});
+
 async function armed(o) {
   const t = setup(o);
   await t.ctl.init();
