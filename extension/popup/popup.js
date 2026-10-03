@@ -1,6 +1,6 @@
 // Tout le contenu dynamique est écrit via textContent (jamais innerHTML).
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { mode: 'dev', apiKey: '', endpoint: '', backendUrl: '', autoAnalyze: false, debug: false };
+const DEFAULTS = { mode: 'dev', apiKey: '', endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, debug: false };
 const pct = (x) => (typeof x === 'number' ? `${Math.round(x * 100)}%` : '—');
 
 const STATUS_TEXT = {
@@ -60,6 +60,7 @@ async function loadSettings() {
   $('endpoint').value = s.endpoint;
   $('backendUrl').value = s.backendUrl;
   $('auto').checked = s.autoAnalyze;
+  $('stake').checked = s.stakeAdvice;
   $('debug').checked = s.debug;
   toggleMode();
   const configured = s.mode === 'backend' ? !!s.backendUrl.trim() : !!s.apiKey.trim();
@@ -96,6 +97,7 @@ $('saveKey').addEventListener('click', async () => {
 });
 
 $('auto').addEventListener('change', (e) => chrome.storage.local.set({ autoAnalyze: e.target.checked }));
+$('stake').addEventListener('change', (e) => chrome.storage.local.set({ stakeAdvice: e.target.checked }));
 $('debug').addEventListener('change', (e) => chrome.storage.local.set({ debug: e.target.checked }));
 
 $('analyze').addEventListener('click', async () => {

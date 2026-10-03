@@ -81,7 +81,7 @@
       s.badge.remove();
     }
     active.clear();
-    if (overlay) overlay.replaceChildren();
+    if (overlay) overlay.querySelectorAll(`.${CLS.badge}`).forEach((n) => n.remove());
   }
 
   /** Vrai si le DOM affiche déjà exactement ces recommandations (évite re-render + mutations inutiles). */
@@ -117,6 +117,6 @@
   addEventListener('scroll', schedule, true);
   addEventListener('resize', schedule);
 
-  const api = { Highlighter: { apply, clear, isUpToDate, reposition, CLS } };
+  const api = { Highlighter: { apply, clear, isUpToDate, reposition, getOverlay, CLS } };
   Object.assign(root.JEV, api);
 })(globalThis);

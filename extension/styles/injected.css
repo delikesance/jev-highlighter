@@ -50,3 +50,32 @@
   font-weight: 500;
   opacity: 0.75;
 }
+
+.jev-stake {
+  position: absolute;
+  max-width: 340px;
+  padding: 8px 10px;
+  font: 12px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #e2e8f0;
+  background: #0f172a;
+  border: 1px solid #facc15;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.jev-stake__title { font-weight: 700; color: #facc15; }
+.jev-stake__title--err { color: #f87171; }
+.jev-stake__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.jev-stake__amount { font-size: 20px; font-weight: 800; }
+.jev-stake__copy {
+  pointer-events: auto;
+  padding: 3px 10px;
+  font: 600 11px system-ui, sans-serif;
+  color: #052e16;
+  background: #4ade80;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.jev-stake__sub { color: #cbd5e1; }
+.jev-stake__note { margin-top: 3px; font-size: 10px; color: #94a3b8; }

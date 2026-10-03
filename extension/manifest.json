@@ -19,7 +19,9 @@
         "src/parser.js",
         "src/jev.js",
         "src/matcher.js",
+        "src/stake.js",
         "src/highlighter.js",
+        "src/stake-ui.js",
         "src/content.js"
       ],
       "css": ["styles/injected.css"],

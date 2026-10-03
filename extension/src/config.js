@@ -29,7 +29,29 @@
       odds: '.btn_label',
       strikethrough: '.is-strikethrough',
       // À CONFIRMER : sélecteur d'un marché suspendu (valeur supposée).
-      suspended: '[data-qa="market-suspended"], .is-suspended'
+      suspended: '[data-qa="market-suspended"], .is-suspended',
+      // Solde du portefeuille (en-tête du site)
+      wallet: '.header_walletBalance bc-header-animated-balance',
+      // Ticket de pari
+      slip: {
+        card: 'betting-slip-selection-card',
+        event: '.progressiveBettingSlip_cardEventName',
+        label: '.progressiveBettingSlip_cardMarketLabel', // la sélection (ex. "Nul")
+        market: '.progressiveBettingSlip_cardMarketValue', // le marché (ex. "Résultat du match")
+        odds: 'betting-slip-odds-field .btn_label',
+        footerOdds: 'betting-slip-footer-odds .btn_label',
+        stakeInput: 'input[name="stakeField"]'
+      }
+    },
+
+    // Suggestion de mise : JEV choisit une tranche de mise parmi plusieurs, puis on affine tranche par tranche.
+    // Suggestion uniquement : l'extension ne remplit JAMAIS le champ de mise.
+    stake: {
+      cells: 10, // tranches proposées à chaque tour
+      maxRounds: 3, // ex. solde 5,90 € : tranches de 1 € -> 0,10 € -> 0,01 €
+      maxFractionOfWallet: 1, // plafond de mise = fraction du solde (1 = tout le solde)
+      minStake: 0.1,
+      debounceMs: 1500
     },
 
     // Textes envoyés à JEV (génériques, aucun marché codé en dur).

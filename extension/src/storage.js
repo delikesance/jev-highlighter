@@ -10,6 +10,7 @@
     endpoint: '', // vide => CONFIG.JEV.endpoint
     backendUrl: '',
     autoAnalyze: false,
+    stakeAdvice: true,
     debug: false
   };
 
