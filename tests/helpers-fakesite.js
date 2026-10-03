@@ -27,6 +27,8 @@ ${SLIP_EMPTY}</body></html>`;
   let sel = null; // { label, market, window, odds }
   let stake = null;
   let hidden = !!o.hidden;
+  let clock = 0;
+  let timers = [];
   Object.defineProperty(doc, 'visibilityState', { configurable: true, get: () => (hidden ? 'hidden' : 'visible') });
 
   if (o.odds !== undefined) {
@@ -56,7 +58,7 @@ ${SLIP_EMPTY}</body></html>`;
       .replace('value="0.65"', 'value=""')
       .replace('4,23&nbsp;€', '0,00&nbsp;€')
       .replace(' Parier ', ` ${o.betLabel} `)
-      .replace('id="betBtn"', 'id="betBtn" disabled');
+      .replace('id="betBtn"', o.betLabelEnabled ? 'id="betBtn"' : 'id="betBtn" disabled');
     slipRoot().outerHTML = one;
     if (o.extraBanner) {
       const a = doc.createElement('betting-slip-alert');
@@ -74,7 +76,7 @@ ${SLIP_EMPTY}</body></html>`;
     const w = stake ? Math.round(stake * sel.odds * 100) / 100 : 0;
     doc.querySelector('.progressiveBettingSlip_footerValue').innerHTML = `${fr(w)}&nbsp;€`;
     const btn = doc.querySelector('#betBtn');
-    if (stake && stake > 0) btn.removeAttribute('disabled'); else btn.setAttribute('disabled', '');
+    if ((stake && stake > 0) || o.betLabelEnabled) btn.removeAttribute('disabled'); else btn.setAttribute('disabled', '');
   }
 
   function addSelection(button) {
@@ -122,12 +124,29 @@ ${SLIP_EMPTY}</body></html>`;
     const v = oddsNum(e.target.value);
     stake = Number.isFinite(v) ? v : null;
     if (o.driftAfterStake !== undefined) sel.odds = o.driftAfterStake;
-    update();
+    if (o.asyncStakeDelayMs !== undefined) {
+      // Angular asynchrone : les gains ne suivent qu'après un délai (temps simulé, avancé par advance()).
+      const keep = stake; stake = null; update(); stake = keep;
+      timers.push({ due: clock + o.asyncStakeDelayMs, fn: update });
+    } else update();
   });
 
   return {
     dom, win, doc, spy,
     setHidden(v) { hidden = v; },
+    advance(ms) {
+      clock += ms;
+      const due = timers.filter((t) => t.due <= clock);
+      timers = timers.filter((t) => t.due > clock);
+      for (const t of due) if (sel) t.fn();
+    },
+    setOdds(x) { sel.odds = x; update(); },
+    setBetLabel(l) { doc.querySelector('#betBtn .btn_label').textContent = ` ${l} `; },
+    addUserSelection() {
+      doc.querySelector('.progressiveBettingSlip_headerTitle span').textContent = ' 2 sélections ';
+      const card = doc.querySelector('.progressiveBettingSlip_card');
+      card.parentNode.appendChild(card.cloneNode(true));
+    },
     slipCount: () => parseInt(doc.querySelector('.progressiveBettingSlip_headerTitle').textContent, 10),
   };
 }

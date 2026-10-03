@@ -47,6 +47,8 @@
     need('minConfidence', HARD.minConfidence, 1);
     need('confirmTimeoutMs', 1, HARD.confirmTimeoutMs);
     need('hiddenTabMs', 0, HARD.hiddenTabMs);
+    need('slipWaitMs', 1, 10000);
+    need('pollMs', 50, 1000);
     const qm = cfg.quickMarkets;
     if (!qm || typeof qm !== 'object' || Array.isArray(qm)) errors.push('quickMarkets : objet requis');
     else {
