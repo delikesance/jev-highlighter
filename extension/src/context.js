@@ -250,11 +250,18 @@
       });
       const doc = iframe.contentDocument; // same-origin : accès direct
       if (!doc) throw new Error('iframe inaccessible');
+      log(`Match context iframe loaded: ${doc.location && doc.location.href} (title: ${doc.title})`);
       for (const tab of TABS) {
         const el = await waitFor(() => doc.querySelector(`[data-qa="${tab.qa}"]`), 4000);
-        if (!el) continue; // onglet absent (ex. pas de Live avant le match)
+        if (!el) {
+          // onglet absent (ex. pas de Live avant le match) : on liste ce qui existe pour adapter les sélecteurs
+          const found = [...doc.querySelectorAll('[data-qa^="match-center"]')].map((n) => n.getAttribute('data-qa'));
+          log(`Match context: tab "${tab.qa}" not found. data-qa present: ${found.join(', ') || 'none'}`);
+          continue;
+        }
         if (!el.classList.contains('isActive')) el.click(); // onglet de l'iframe CACHÉ uniquement
         parts[tab.part] = await waitFor(() => tab.ready(doc), CONFIG.context.tabMs);
+        log(`Match context: tab ${tab.part} ${parts[tab.part] ? 'parsed' : 'found but nothing parsed (widget empty or markup different)'}`);
       }
     } catch (e) {
       warn(`Match context iframe failed: ${e && e.message ? e.message : 'timeout/blocked'}`);
@@ -283,7 +290,14 @@
         loading.set(
           key,
           collectViaIframe(key)
-            .then((parts) => remember(key, parts))
+            .then((parts) => {
+              if (!Object.values(parts).some(Boolean)) {
+                // rien de lisible : on ne mémorise PAS un résultat vide (il bloquerait les essais suivants pendant le TTL)
+                warn('Match context: nothing collected, not cached');
+                return null;
+              }
+              return remember(key, parts);
+            })
             .finally(() => loading.delete(key))
         );
       }
