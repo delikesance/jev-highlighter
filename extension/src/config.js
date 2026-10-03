@@ -80,6 +80,7 @@
       hiddenTabMs: 5000,
       slipWaitMs: 3000, // attente des mises à jour du ticket (Angular asynchrone), ≤ 10000
       pollMs: 250, // pas d'interrogation du DOM, ≥ 50
+      maxCycles: 60, // nombre max. de cycles SCAN par session, 1..200
       pauseMs: 5000, // pause entre deux cycles du contrôleur, 1000..60000
       maxBets: 5,
       maxLosses: 3,

@@ -50,6 +50,8 @@
     need('slipWaitMs', 1, 10000);
     need('pollMs', 50, 1000);
     need('pauseMs', 1000, 60000);
+    need('maxCycles', 1, 200);
+    if (num(cfg.maxCycles) && !Number.isInteger(cfg.maxCycles)) errors.push('maxCycles : entier requis');
     const qm = cfg.quickMarkets;
     if (!qm || typeof qm !== 'object' || Array.isArray(qm)) errors.push('quickMarkets : objet requis');
     else {
@@ -69,7 +71,16 @@
    * release(stake) quand le résultat est vérifié ; release(stake, true) pour un pari abandonné avant confirmation.
    * check refuse si placed + enVol >= maxBets.
    */
-  function create(cfg, startBalance) {
+  // Instantané des compteurs (persisté par le contrôleur) : validation stricte, sinon exception.
+  function checkSnapshot(s) {
+    if (!s || typeof s !== 'object') throw new Error('instantané du guard invalide');
+    const ints = ['placed', 'inFlight', 'consecutiveLosses'];
+    for (const k of ints) if (!Number.isInteger(s[k]) || s[k] < 0) throw new Error(`instantané du guard : ${k} invalide`);
+    if (!num(s.reserved) || s.reserved < 0) throw new Error('instantané du guard : reserved invalide');
+    return { placed: s.placed, inFlight: s.inFlight, consecutiveLosses: s.consecutiveLosses, reserved: s.reserved };
+  }
+
+  function create(cfg, startBalance, snapshot) {
     const v = validateConfig(cfg);
     if (!v.ok) throw new Error('Config auto invalide : ' + v.errors.join(' ; '));
     if (!num(startBalance) || startBalance <= 0) throw new Error('Solde de départ invalide');
@@ -91,6 +102,10 @@
     const lossCapC = Math.floor(startC * c.lossFrac + E);
     const st = { startBalance, placed: 0, reserved: 0, consecutiveLosses: 0 };
     let inFlight = 0;
+    if (snapshot !== undefined && snapshot !== null) {
+      const r = checkSnapshot(snapshot);
+      st.placed = r.placed; st.reserved = r.reserved; st.consecutiveLosses = r.consecutiveLosses; inFlight = r.inFlight;
+    }
 
     function maxStake(suggested) {
       if (!num(suggested) || suggested <= 0) return 0;
@@ -135,6 +150,7 @@
         else if (r === 'lost') st.consecutiveLosses += 1;
         else throw new Error('résultat inconnu : ' + r);
       },
+      snapshot() { return Object.freeze({ placed: st.placed, reserved: st.reserved, inFlight, consecutiveLosses: st.consecutiveLosses }); },
       get state() { return Object.freeze({ ...st }); }
     };
   }
