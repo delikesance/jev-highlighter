@@ -65,6 +65,9 @@ test('dry-run : #betBtn jamais cliqué, ticket revenu vide', async () => {
   assert.strictEqual(s.site.spy.betBtn, 0);
   assert.strictEqual(s.site.slipCount(), 0);
   assert.strictEqual(s.guard.state.reserved, 0);
+  for (const event of ['executor: start', 'executor: wallet', 'executor: guard preliminary', 'executor: ticket ready', 'executor: stake input', 'executor: ticket sized']) {
+    assert.ok(s.logs.some(([label]) => label === event), `diagnostic absent : ${event}`);
+  }
 });
 test('nouveau flow : la mise JEV est demandée après ouverture du ticket, avant saisie', async () => {
   let called = 0;

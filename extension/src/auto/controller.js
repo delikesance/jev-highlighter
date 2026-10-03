@@ -50,6 +50,7 @@
       let st;
       try {
         st = await store.get();
+        log('controller: init', { phase: st.phase || 'IDLE', stopped: !!st.stopped, ownerTabId: st.ownerTabId, tabId, pending: !!st.pending, hasSession: !!st.session });
         if (isOther(st)) { foreign = true; log('ARRÊT', 'session Auto armée dans un autre onglet'); return (lastPhase = 'STOPPED'); }
         if (secretLeaked()) { await stop('clé secrète présente dans la page'); return 'STOPPED'; }
         const sb = st.session && st.session.startBalance;
@@ -223,6 +224,7 @@
           else if (tried.has(e.href)) scanSummary.tried++;
         }
         const events = all.filter((e) => !tried.has(e.href));
+        log('controller: scan', { summary: scanSummary, candidates: events.map(({ name, sport, clock }) => ({ name, sport, clock })) });
         await set({ phase: 'CHOIX', events, tried: [...tried], retryAfter, scanSummary, message: null, cycles: (st.cycles || 0) + 1 });
         return 'CHOIX';
       },
@@ -231,6 +233,7 @@
         const event = typeof deps.chooseEvent === 'function'
           ? (candidates.length ? await deps.chooseEvent(candidates) : null)
           : selector.pickEvent(st.events || [], new Set(st.tried || []), quickCountFor);
+        log('controller: live chosen', { candidates: candidates.length, event: event && { name: event.name, sport: event.sport, clock: event.clock } });
         if (await store.stopFlag()) return 'STOPPED';
         if (deps.chooseEvent && event && !candidates.some((e) => e.href === event.href)) { await stop('JEV : live absent de la liste'); return 'STOPPED'; }
         if (!event) {
@@ -262,6 +265,7 @@
         }
         if (await store.stopFlag()) return 'STOPPED';
         const matches = markets.length ? await deps.analyze(markets, { event }) : [];
+        log('controller: analysis', { markets: markets.length, matches });
         if (await store.stopFlag()) return 'STOPPED';
         const ranked = [...matches].sort((a, b) => {
           const score = (m) => Number.isFinite(m.jevScore) ? m.jevScore : Number.isFinite(m.confidence) ? m.confidence : -1;
@@ -304,6 +308,7 @@
         }
         const pk = st.pick;
         const before = st.dryRun ? null : await tracker.snapshotOngoing();
+        log('controller: tracking snapshot', { dryRun: st.dryRun, available: Array.isArray(before), count: Array.isArray(before) ? before.length : null });
         if (!st.dryRun && !Array.isArray(before)) {
           await stop('suivi des paris indisponible', { message: 'Aucun pari validé : la page Mes paris ne devient pas lisible. Vérifier sa page chargée avant de réarmer.' });
           return 'STOPPED';
@@ -338,6 +343,7 @@
       },
       async ATTENTE(st) {
         const id = await tracker.identify(st.before || []);
+        log('controller: identification', id);
         if (!id || id.method === 'none') { await stop('pari placé non identifié : vérifier Mes paris + solde'); return 'STOPPED'; }
         if (id.method !== 'reference' || !id.reference) {
           // Pas de référence : le pari n'est pas suivable. Il reste compté (réserve bloquée), la session s'arrête.
@@ -352,6 +358,7 @@
         return 'PAUSE';
       },
       async PAUSE() {
+        log('controller: pause', { pauseMs });
         await sleep(pauseMs);
         if (await store.stopFlag()) return 'STOPPED';
         await set({ phase: 'SCAN' });
@@ -371,7 +378,10 @@
         lastPhase = STATES.includes(st.phase) ? st.phase : 'IDLE';
         if (lastPhase === 'IDLE') return 'IDLE';
         if (!guard) { await stop('session sans garde-fous (init manquant)'); return 'STOPPED'; }
+        const from = lastPhase, started = deps.now();
+        log('controller: step', { phase: from, cycles: st.cycles, dryRun: st.dryRun, event: st.event && st.event.name, pick: st.pick && st.pick.label, pending: !!st.pending, guard: guard.snapshot() });
         lastPhase = await phases[lastPhase](st);
+        log('controller: transition', { from, to: lastPhase, elapsedMs: deps.now() - started });
         return lastPhase;
       } catch (e) {
         await stop(`${(st && st.phase) || '?'} : ${msg(e)}`);

@@ -16,9 +16,11 @@
       try { const b = readBalanceRaw(); return isNum(b) ? b : null; } catch (e) { log('tracker: solde illisible', e && e.message); return null; }
     };
     const bets = async (filter) => {
+      log('tracker: read start', { filter });
       const doc = await getMyBetsDoc(filter);
       const l = readers.readMyBets(doc);
       if (!Array.isArray(l)) throw new Error('lecture Mes paris invalide');
+      log('tracker: read result', { filter, cards: l.length, statuses: l.map((b) => b.status) });
       return l;
     };
     // Clé de chaque carte : référence, sinon clé de repli stable « id:<data-qa> », sinon null (illisible).
@@ -28,6 +30,7 @@
     async function snapshotOngoing() {
       try {
         const k = refs(await bets('ongoing'));
+        log('tracker: snapshot result', { count: k.length, unreadable: k.includes(null) });
         return k.includes(null) ? null : k;
       } catch (e) { log('tracker: snapshot impossible', e && e.message); return null; }
     }
@@ -41,6 +44,7 @@
         try {
           const keys = refs(await bets('ongoing'));
           fresh = [...new Set(keys.filter((r) => r === null || !prev.has(r)))];
+          log('tracker: identify attempt', { attempt: i + 1, previous: prev.size, current: keys.length, fresh: fresh.length });
         } catch (e) { log('tracker: relecture impossible', e && e.message); fresh = []; }
         if (fresh.length >= 2 || (fresh.length === 1 && (fresh[0] === null || fresh[0].startsWith('id:')))) break;
         if (fresh.length === 1 && fresh[0] !== null && !fresh[0].startsWith('id:')) return { method: 'reference', reference: fresh[0] };

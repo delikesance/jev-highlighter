@@ -359,7 +359,11 @@ test('smoke Auto : marchés rapides dupliqués entre sections -> un seul envoyé
 
 test('smoke Auto : décisions live, pari et mise du ticket via JEV ; analyse manuelle intacte', async () => {
   let opts;
-  const { sent, doc } = boot(fixture(), { autoMode: true, __before: (w) => { spyRuntime(w, (o) => { opts = o; }); } });
+  const logs = [];
+  const { sent, doc } = boot(fixture(), { autoMode: true, debug: false, __before: (w) => {
+    w.console.log = (...a) => logs.push(a);
+    spyRuntime(w, (o) => { opts = o; });
+  } });
   await wait(60);
   const list = opts.parseMarkets(doc);
   assert.ok(Array.isArray(list) && list.length >= 5);
@@ -377,6 +381,9 @@ test('smoke Auto : décisions live, pari et mise du ticket via JEV ; analyse man
   assert.equal(requests[0].state.task, 'auto_choose_live');
   assert.equal(requests[1].state.task, 'auto_choose_bet');
   assert.ok(requests.slice(2).every((b) => b.state.task === 'stake_sizing' && b.state.wallet_eur === 14.47 && b.state.total_odds === 2.35));
+  assert.ok(logs.some((l) => l.includes('JEV: request')));
+  assert.ok(logs.some((l) => l.includes('JEV: response')));
+  assert.ok(logs.every((l) => l[0] === '[JEV][auto]'));
   // l'analyse manuelle n'est pas touchée : aucun surlignage
   assert.equal(doc.querySelectorAll('.jev-recommended-bet').length, 0);
 });

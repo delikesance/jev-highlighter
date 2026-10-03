@@ -391,15 +391,21 @@
     const now = Date.now; // horloge UNIQUE
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const alog = (...a) => {
-      log('[auto]', ...a);
-      if (auto.ui) auto.ui.addLog(a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' '));
+      console.log('[JEV][auto]', new Date(now()).toISOString(), location.pathname, ...a);
+      if (auto.ui) auto.ui.addLog(a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ').slice(0, 1500));
     };
     let tabId = null;
     try { tabId = ((await send({ type: 'JEV_TAB_ID' })) || {}).tabId; } catch (e) { tabId = null; }
     if (tabId == null) { warn('Mode Auto : identifiant d\'onglet indisponible'); return; }
 
     const askJev = async (body) => {
-      const res = await send({ type: 'JEV_EVALUATE', requestId: ++st.seq, body: { model: CONFIG.JEV.model, ...body } });
+      const requestId = ++st.seq, started = now();
+      alog('JEV: request', { requestId, task: body.state && body.state.task, questions: Object.keys(body.questions || {}), state: body.state, criteria: Object.fromEntries(Object.entries(body.questions || {}).map(([id, q]) => [id, q.criteria])) });
+      let res;
+      try { res = await send({ type: 'JEV_EVALUATE', requestId, body: { model: CONFIG.JEV.model, ...body } }); }
+      catch (e) { alog('JEV: transport error', { requestId, elapsedMs: now() - started, message: e.message }); throw e; }
+      const answers = res && res.data && res.data.answers;
+      alog('JEV: response', { requestId, elapsedMs: now() - started, ok: !!(res && res.ok), answers: Object.fromEntries(Object.entries(answers || {}).map(([id, a]) => [id, { choice: a && a.choice, confidence: a && a.confidence, probabilities: a && a.probabilities }])), error: res && res.error });
       if (!res || !res.ok) {
         const e = (res && res.error) || { code: 'unknown', message: 'Réponse vide' };
         throw Object.assign(new Error(e.message), { code: e.code });
@@ -407,7 +413,7 @@
       return res.data.answers;
     };
     async function chooseEvent(events) {
-      alog('JEV : choix du live', events.length);
+      alog('JEV : choix du live', events.map(({ name, sport, clock, score }) => ({ name, sport, clock, score })));
       return A.Decisions.chooseEvent(events, askJev);
     }
     async function analyzeAuto(markets, ctx) {
@@ -426,6 +432,7 @@
         matchContext: null
       };
       const r = await suggestStake(ctx, askJev);
+      alog('JEV: stake result', r);
       return r.none ? null : r.amount;
     }
 
