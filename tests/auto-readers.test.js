@@ -90,6 +90,14 @@ test('readSlip: EUR fragmenté par Angular est accepté partout dans le ticket, 
   currency.append(' indisponible');
   assert.deepStrictEqual(R.readSlip(d).unknown, ['EUR indisponible']);
 });
+test('readSlip: texte informatif ou promotionnel nouveau ne bloque pas le ticket', () => {
+  const d = load('fixture-slip-one.html');
+  d.querySelector('.progressiveBettingSlip_content').insertAdjacentHTML(
+    'afterbegin',
+    '<aside><strong>Nouveau boost disponible</strong><span>Ajoute une sélection pour découvrir ton avantage</span></aside>'
+  );
+  assert.deepStrictEqual(R.readSlip(d).unknown, []);
+});
 test('readWallet', () => {
   assert.strictEqual(R.readWallet(load('fixture-slip-one.html')), 6.53);
   assert.strictEqual(R.readWallet(new JSDOM('<p></p>').window.document), null);
@@ -204,5 +212,5 @@ test('unknown: allowlist ancrée au contexte et à la forme', () => {
   assert.deepStrictEqual(U((d) => { d.querySelector('#betBtn .btn_label').textContent = 'Accepter les cotes'; }), ['Accepter les cotes']);
   assert.deepStrictEqual(U((d) => { d.querySelector('betting-slip-footer-odds .btn_label').textContent = 'Indisponible'; }), ['Indisponible']);
   assert.deepStrictEqual(U((d) => { d.querySelector('.progressiveBettingSlip_headerTitle span').textContent = 'Erreur'; }), ['Erreur']);
-  assert.deepStrictEqual(U((d) => d.querySelector('sports-betting-slip').insertAdjacentHTML('beforeend', '<span class="is-multiboost">Booste ton pari</span>')), ['Booste ton pari']);
+  assert.deepStrictEqual(U((d) => d.querySelector('sports-betting-slip').insertAdjacentHTML('beforeend', '<span class="is-multiboost">Booste ton pari</span>')), []);
 });
