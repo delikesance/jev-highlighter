@@ -15,6 +15,19 @@ test('aucun fichier content_scripts ne contient apiKey', () => {
   }
 });
 
+test('un seul module clique : auto/executor.js (exemption fermée : context.js)', () => {
+  const RE = /\.click\(|dispatchEvent|new (Mouse|Input|Keyboard)?Event|\.submit\(|\.value\s*=/;
+  const EXEMPT = new Set(['auto/executor.js', 'context.js']);
+  const src = path.join(ext, 'src');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const offenders = walk(src)
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => path.relative(src, f).split(path.sep).join('/'))
+    .filter((rel) => !EXEMPT.has(rel) && RE.test(fs.readFileSync(path.join(src, rel), 'utf8')));
+  assert.deepStrictEqual(offenders, []);
+  assert.ok(fs.existsSync(path.join(src, 'auto/executor.js')), 'executor.js doit exister');
+});
+
 test('getSettings sans apiKey', async () => {
   const real = global.chrome;
   global.chrome = { storage: { local: { get: async (defaults) => ({ ...defaults, apiKey: 'k', mode: 'dev', hasKey: true }) } } };
