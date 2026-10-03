@@ -1,6 +1,6 @@
 // Tout le contenu dynamique est écrit via textContent (jamais innerHTML).
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { mode: 'dev', apiKey: '', hasKey: false, endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, matchContext: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false };
+const DEFAULTS = { mode: 'dev', apiKey: '', hasKey: false, endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, matchContext: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false, autoMode: false };
 const pct = (x) => (typeof x === 'number' ? `${Math.round(x * 100)}%` : '—');
 
 const STATUS_TEXT = {
@@ -71,6 +71,7 @@ async function loadSettings() {
   $('mctx').checked = s.matchContext;
   $('dock').checked = s.dockOpen;
   $('debug').checked = s.debug;
+  $('autoMode').checked = s.autoMode === true;
   toggleMode();
   const configured = s.mode === 'backend' ? !!s.backendUrl.trim() : !!s.apiKey.trim();
   $('conn').textContent = configured ? 'configuré' : 'non configuré';
@@ -105,6 +106,7 @@ $('stake').addEventListener('change', (e) => chrome.storage.local.set({ stakeAdv
 $('mctx').addEventListener('change', (e) => chrome.storage.local.set({ matchContext: e.target.checked }));
 $('reorder').addEventListener('change', (e) => chrome.storage.local.set({ reorderPicks: e.target.checked }));
 $('dock').addEventListener('change', (e) => chrome.storage.local.set({ dockOpen: e.target.checked, dockCollapsed: false }));
+$('autoMode').addEventListener('change', (e) => chrome.storage.local.set({ autoMode: e.target.checked }));
 $('debug').addEventListener('change', (e) => chrome.storage.local.set({ debug: e.target.checked }));
 
 $('analyze').addEventListener('click', async () => {

@@ -17,6 +17,10 @@ try {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const tabId = sender.tab && sender.tab.id;
+  if (msg.type === 'JEV_TAB_ID') {
+    sendResponse({ tabId: tabId == null ? null : tabId });
+    return false;
+  }
   if (msg.type === 'JEV_ABORT') {
     const c = controllers.get(`${tabId}:${msg.requestId}`);
     if (c) c.abort();

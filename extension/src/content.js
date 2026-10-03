@@ -375,6 +375,93 @@
     return true;
   });
 
+  // ------------------------------------------------------------------ mode Auto (expert, désactivé par défaut)
+  // autoMode faux => rien ici ne s'exécute. Jamais d'armement automatique : seul le bouton « Armer » du panneau arme.
+
+  const auto = { started: false, rt: null, ui: null, timer: null, running: false };
+
+  async function startAuto() {
+    if (window !== window.top) return; // jamais de runtime Auto dans un sous-cadre
+    const A = J.Auto;
+    if (auto.started || !A || !A.Wiring || !A.UI) return;
+    auto.started = true;
+    const now = Date.now; // horloge UNIQUE
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const alog = (...a) => {
+      log('[auto]', ...a);
+      if (auto.ui) auto.ui.addLog(a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' '));
+    };
+    let tabId = null;
+    try { tabId = ((await send({ type: 'JEV_TAB_ID' })) || {}).tabId; } catch (e) { tabId = null; }
+    if (tabId == null) { warn('Mode Auto : identifiant d\'onglet indisponible'); return; }
+
+    const askJev = async (body) => {
+      const res = await send({ type: 'JEV_EVALUATE', requestId: ++st.seq, body });
+      if (!res || !res.ok) {
+        const e = (res && res.error) || { code: 'unknown', message: 'Réponse vide' };
+        throw Object.assign(new Error(e.message), { code: e.code });
+      }
+      return res.data.answers;
+    };
+    // Marchés déjà dédupliqués et filtrés par le contrôleur : requête + matching existants, sans surlignage.
+    async function analyzeAuto(markets) {
+      const parsed = { list: markets, markets: new Map(markets.map((m) => [m.id, m])) };
+      const matchKey = MatchContext.keyFromPath(location.pathname);
+      const matchContext = matchKey && st.settings.matchContext ? MatchContext.peek(matchKey) : null;
+      const built = buildRequest(parsed, { pageTitle: document.title, pagePath: location.pathname, matchContext });
+      if (!built.questionCount) return [];
+      const answers = await askJev(built.body);
+      return matchAnswers(parsed.markets, answers, { expectedIds: built.sentIds }).recommendations;
+    }
+    async function stakeFor(info) {
+      const pick = info && info.pick;
+      const wallet = await A.Readers.readWalletStable(document, sleep);
+      if (!pick || typeof wallet !== 'number' || !(pick.odds > 0)) return null;
+      const ctx = {
+        wallet,
+        totalOdds: pick.odds,
+        selections: [{ market: pick.marketTitle, selection: pick.label, odds: pick.odds, jev_preference: null, jev_confidence: pick.confidence }],
+        matchContext: null
+      };
+      const r = await suggestStake(ctx, askJev);
+      return r.none ? null : r.amount;
+    }
+
+    const rt = A.Wiring.createRuntime({
+      chromeApi: chrome, doc: document, tabId, settings: st.settings, cfg: CONFIG.auto, modules: A, now, sleep, log: alog,
+      analyze: analyzeAuto, stakeFor, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
+    });
+    auto.rt = rt;
+    const status = async () => ({ ...(await rt.store.get()), balance: A.Readers.readWallet(document) });
+    const refresh = () => status().then((s) => auto.ui && auto.ui.refresh(s)).catch(() => {});
+
+    // Planificateur séquentiel : un seul step() à la fois, le suivant n'est programmé qu'après la fin du précédent.
+    const schedule = () => {
+      if (auto.timer || auto.running) return;
+      auto.timer = setTimeout(loop, CONFIG.auto.stepMs);
+    };
+    async function loop() {
+      auto.timer = null;
+      auto.running = true;
+      let r = 'STOPPED';
+      try { r = await rt.controller.step(); } catch (e) { alog('step : erreur', e && e.message); }
+      auto.running = false;
+      refresh();
+      if (r !== 'STOPPED' && r !== 'IDLE') schedule();
+    }
+
+    auto.ui = A.UI.mount(
+      {
+        stop: async (reason) => { await rt.stop(reason); refresh(); },
+        arm: async (phrase, o) => { await rt.controller.arm(phrase, o); refresh(); schedule(); }
+      },
+      { doc: document, getStatus: status }
+    );
+    const r = await rt.controller.init();
+    refresh();
+    if (r !== 'STOPPED' && r !== 'IDLE') schedule();
+  }
+
   // ------------------------------------------------------------------ démarrage
 
   Storage.getSettings().then((s) => {
@@ -383,6 +470,7 @@
     refreshUI(parseMarkets(document));
     scheduleTick();
     scheduleStake();
+    if (s.autoMode === true) startAuto().catch((e) => warn('Mode Auto', e && e.message));
   });
   Storage.onSettingsChanged((patch) => {
     Object.assign(st.settings, patch);
@@ -390,6 +478,8 @@
     if (patch.autoAnalyze) scheduleTick();
     if (['autoAnalyze', 'reorderPicks', 'dockOpen', 'dockCollapsed'].some((k) => k in patch)) refreshUI();
     if ('matchContext' in patch) st.cache.clear(); // le contexte change la requête : on ré-analysera
+    if (patch.autoMode === true) startAuto().catch((e) => warn('Mode Auto', e && e.message));
+    else if (patch.autoMode === false && auto.rt) auto.rt.stop('Mode Auto désactivé').catch(() => {});
     if ('stakeAdvice' in patch) {
       stakeState.fp = null;
       scheduleStake();

@@ -52,6 +52,7 @@
     need('identifyRetries', 1, 5);
     if (num(cfg.identifyRetries) && !Number.isInteger(cfg.identifyRetries)) errors.push('identifyRetries : entier requis');
     need('pauseMs', 1000, 60000);
+    need('stepMs', 500, 10000);
     need('maxCycles', 1, 200);
     if (num(cfg.maxCycles) && !Number.isInteger(cfg.maxCycles)) errors.push('maxCycles : entier requis');
     need('myBetsWaitMs', 1, 20000);
