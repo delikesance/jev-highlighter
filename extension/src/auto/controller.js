@@ -196,14 +196,24 @@
         await resolveBets(st);
         if (await endRules(st)) return 'STOPPED';
         const tried = new Set(st.tried || []);
-        const events = (scanner.scanLive(doc) || []).filter((e) => e && !tried.has(e.href));
-        await set({ phase: 'CHOIX', events, cycles: (st.cycles || 0) + 1 });
+        const all = (scanner.scanLive(doc) || []).filter(Boolean);
+        const scanSummary = { total: all.length, tried: 0, sport: 0, paused: 0 };
+        for (const e of all) {
+          if (!['football', 'basketball'].includes(e.sport)) scanSummary.sport++;
+          else if (!e.clock || !e.clock.running) scanSummary.paused++;
+          else if (tried.has(e.href)) scanSummary.tried++;
+        }
+        const events = all.filter((e) => !tried.has(e.href));
+        await set({ phase: 'CHOIX', events, scanSummary, message: null, cycles: (st.cycles || 0) + 1 });
         return 'CHOIX';
       },
       async CHOIX(st) {
         const event = selector.pickEvent(st.events || [], new Set(st.tried || []), quickCountFor);
         if (!event) {
-          const message = 'Aucun événement en cours éligible : nouvelle recherche après la pause.';
+          const summary = st.scanSummary;
+          const message = summary
+            ? `Aucun nouveau candidat : ${summary.total} détecté(s), ${summary.tried} déjà tenté(s), ${summary.paused} en pause/non démarré(s), ${summary.sport} hors sport Auto. Nouvelle recherche après la pause.`
+            : 'Aucun événement en cours éligible : nouvelle recherche après la pause.';
           log(message);
           await set({ phase: 'PAUSE', events: null, message });
           return 'PAUSE';
