@@ -22,6 +22,8 @@
     '.progressiveBettingSlip_cardMarketLabel', '.progressiveBettingSlip_cardMarketValue',
     'betting-slip-odds-field', 'betting-slip-footer-odds', '.progressiveBettingSlip_footerLabel',
     '.progressiveBettingSlip_footerValue', '#betBtn', '[data-qa="betting-slip-bet-button"]', 'bcdk-empty-view',
+    '.progressiveBettingSlip_headerTitle > span', '.ellipsis', '.btn_label', 'bcdk-bet-button-odds-animated',
+    'bcdk-bet-button-label', '.is-multiboost',
   ].join(',');
 
   function collectUnknown(doc) {
@@ -29,11 +31,10 @@
     const slip = q(doc, 'sports-betting-slip');
     if (!slip) return out;
     const walk = (el) => {
-      if (el.classList.contains('is-multiboost') || el.matches(KNOWN_TEXT)) return;
       let own = '';
       for (const n of el.childNodes) if (n.nodeType === 3) own += n.nodeValue;
       own = own.replace(/[\u00a0\u202f\s]+/g, ' ').trim();
-      if (own) out.push(own);
+      if (own && !el.matches(KNOWN_TEXT)) out.push(own);
       for (const c of el.children) walk(c);
     };
     for (const c of slip.children) walk(c);
