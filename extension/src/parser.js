@@ -62,11 +62,11 @@
 
     const markets = new Map();
     const skipped = [];
+    // (le détail par marché est volontairement tu : le site anime ses cotes et déclenche ce parsing en continu)
     for (const c of containers) {
       const r = parseMarketBox(c);
       if (r.skip) {
         skipped.push(r.skip);
-        warn(`market skipped (${r.skip})`);
         continue;
       }
       const m = r.market;

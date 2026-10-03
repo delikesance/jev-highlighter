@@ -261,7 +261,13 @@
         }
         if (!el.classList.contains('isActive')) el.click(); // onglet de l'iframe CACHÉ uniquement
         parts[tab.part] = await waitFor(() => tab.ready(doc), CONFIG.context.tabMs);
-        log(`Match context: tab ${tab.part} ${parts[tab.part] ? 'parsed' : 'found but nothing parsed (widget empty or markup different)'}`);
+        if (parts[tab.part]) log(`Match context: tab ${tab.part} parsed`);
+        else {
+          // aide au diagnostic : classes Sportradar présentes + début du texte affiché (autre sport = autre balisage)
+          const sr = [...new Set([...doc.querySelectorAll('[class*="sr-"]')].map((n) => String(n.className).split(/\s+/).find((c) => c.startsWith('sr-'))))].filter(Boolean);
+          const text = ((doc.body && doc.body.innerText) || '').replace(/\s+/g, ' ').slice(0, 600);
+          log(`Match context: tab ${tab.part} found but nothing parsed. sr-* classes (${sr.length}): ${sr.slice(0, 60).join(' ')} | text: ${text}`);
+        }
       }
     } catch (e) {
       warn(`Match context iframe failed: ${e && e.message ? e.message : 'timeout/blocked'}`);
