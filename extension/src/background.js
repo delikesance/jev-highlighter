@@ -7,6 +7,14 @@ importScripts('config.js', 'utils.js', 'storage.js', 'jev.js', 'secrets.js', 'tr
 const { log, error, setDebug, Secrets, Transport } = globalThis.JEV;
 const controllers = new Map(); // `${tabId}:${requestId}` -> AbortController
 
+// Le contrôleur Auto (content script) persiste son état dans storage.session : il faut l'y autoriser.
+try {
+  const p = chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
+  if (p && typeof p.catch === 'function') p.catch((e) => error('storage.session.setAccessLevel', e));
+} catch (e) {
+  error('storage.session.setAccessLevel', e);
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const tabId = sender.tab && sender.tab.id;
   if (msg.type === 'JEV_ABORT') {
