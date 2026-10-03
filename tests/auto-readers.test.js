@@ -156,10 +156,22 @@ test('unknown: textes cachés dans un nœud connu (sous-arbre non sauté)', () =
   assert.deepStrictEqual(R.readSlip(e).unknown, ['Erreur vide']);
 });
 test('multiboost contenant une alerte: erreur signalée', () => {
-  assert.deepStrictEqual(slipWith((d) => { d.querySelector('sports-betting-slip').insertAdjacentHTML('beforeend', '<div class="is-multiboost wrap">Booste<div class="alert">Err</div></div>'); }), ['Err']);
+  assert.deepStrictEqual(slipWith((d) => { d.querySelector('sports-betting-slip').insertAdjacentHTML('beforeend', '<betting-slip-alert><div class="is-multiboost wrap">Booste<div class="alert">Err</div></div></betting-slip-alert>'); }), ['Err']);
 });
 test('fixtures réelles du ticket: unknown vide', () => {
   for (const f of ['fixture-slip-one.html', 'fixture-slip-empty.html', 'fixture-slip.html']) {
     assert.deepStrictEqual(R.readSlip(load(f)).unknown, [], f);
   }
+});
+
+test('unknown: allowlist ancrée au contexte et à la forme', () => {
+  const U = slipWith;
+  assert.deepStrictEqual(U((d) => d.querySelector('.progressiveBettingSlip_cardEventName').insertAdjacentHTML('beforeend', '<span class="ellipsis">Suspendu</span>')), ['Suspendu']);
+  assert.deepStrictEqual(U((d) => d.querySelector('#betBtn').insertAdjacentHTML('beforeend', '<span class="ellipsis">Suspendu</span>')), ['Suspendu']);
+  assert.deepStrictEqual(U((d) => d.querySelector('betting-slip-footer-odds').insertAdjacentHTML('beforeend', '<span class="btn_label">Cotes modifiées</span>')), ['Cotes modifiées']);
+  assert.deepStrictEqual(U((d) => d.querySelector('#betBtn').insertAdjacentHTML('beforeend', '<span class="btn_label">Cotes modifiées</span>')), ['Cotes modifiées']);
+  assert.deepStrictEqual(U((d) => { d.querySelector('#betBtn .btn_label').textContent = 'Accepter les cotes'; }), ['Accepter les cotes']);
+  assert.deepStrictEqual(U((d) => { d.querySelector('betting-slip-footer-odds .btn_label').textContent = 'Indisponible'; }), ['Indisponible']);
+  assert.deepStrictEqual(U((d) => { d.querySelector('.progressiveBettingSlip_headerTitle span').textContent = 'Erreur'; }), ['Erreur']);
+  assert.deepStrictEqual(U((d) => d.querySelector('sports-betting-slip').insertAdjacentHTML('beforeend', '<span class="is-multiboost">Booste ton pari</span>')), ['Booste ton pari']);
 });
