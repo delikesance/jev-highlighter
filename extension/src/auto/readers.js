@@ -11,30 +11,32 @@
     return m ? parseFloat(m[1].replace(',', '.')) : null;
   };
   const oddsOf = (el) => {
-    const m = txt(el).match(/(\d+(?:[.,]\d+)?)/);
-    return m ? parseFloat(m[1].replace(',', '.')) : null;
+    const l = el && el.querySelector('.btn_label');
+    return l ? num(txt(l)) : null;
   };
 
   const WINDOW_RE = /\d+:\d{2}\s*[-–—]\s*\d+:\d{2}/;
-  const KNOWN_TAGS = new Set(['BCDK-EMPTY-VIEW']);
-  const isCard = (el) => /progressiveBettingSlip_card/.test(el.className || '') || el.tagName === 'BETTING-SLIP-SELECTION-CARD';
+  // Textes structurels connus du ticket (tout le reste est signalé dans `unknown`).
+  const KNOWN_TEXT = [
+    '.progressiveBettingSlip_headerTitle', '.progressiveBettingSlip_cardEventName',
+    '.progressiveBettingSlip_cardMarketLabel', '.progressiveBettingSlip_cardMarketValue',
+    'betting-slip-odds-field', 'betting-slip-footer-odds', '.progressiveBettingSlip_footerLabel',
+    '.progressiveBettingSlip_footerValue', '#betBtn', '[data-qa="betting-slip-bet-button"]', 'bcdk-empty-view',
+  ].join(',');
 
   function collectUnknown(doc) {
     const out = [];
-    const push = (el) => { const t = txt(el); if (t) out.push(t); };
-    const content = q(doc, '.progressiveBettingSlip_content');
-    if (content) {
-      for (const el of content.children) {
-        if (KNOWN_TAGS.has(el.tagName) || isCard(el)) continue;
-        if (el.tagName === 'BETTING-SLIP-CONTENT') {
-          for (const c of el.children) if (!KNOWN_TAGS.has(c.tagName) && !isCard(c)) push(c);
-        } else push(el);
-      }
-    }
-    for (const el of doc.querySelectorAll('betting-slip-alert, betting-slip-info-banner, betting-slip-footer-info-banner')) {
-      if (el.classList.contains('is-multiboost') || el.querySelector('.is-multiboost')) continue;
-      push(el);
-    }
+    const slip = q(doc, 'sports-betting-slip');
+    if (!slip) return out;
+    const walk = (el) => {
+      if (el.classList.contains('is-multiboost') || el.matches(KNOWN_TEXT)) return;
+      let own = '';
+      for (const n of el.childNodes) if (n.nodeType === 3) own += n.nodeValue;
+      own = own.replace(/[\u00a0\u202f\s]+/g, ' ').trim();
+      if (own) out.push(own);
+      for (const c of el.children) walk(c);
+    };
+    for (const c of slip.children) walk(c);
     return out;
   }
 
@@ -65,9 +67,9 @@
   }
 
   function readWallet(doc) {
-    const spans = doc.querySelectorAll('.header_walletBalance span');
-    for (let i = spans.length - 1; i >= 0; i--) {
-      const t = txt(spans[i]);
+    if (doc.querySelectorAll('.header_walletBalance').length > 1) return null;
+    for (const sp of doc.querySelectorAll('.header_walletBalance bc-header-animated-balance span')) {
+      const t = txt(sp);
       if (t) return Clock.parseMoney(t);
     }
     return null;
@@ -82,23 +84,27 @@
 
   function readConfirmation(doc) {
     const modal = q(doc, 'sports-bet-confirmation-modal');
-    const money = (sel) => { const e = q(doc, sel); return e ? Clock.parseMoney(txt(e)) : null; };
+    const money = (sel) => { const e = q(modal, sel); return e ? Clock.parseMoney(txt(e)) : null; };
     if (!modal) return { open: false, validated: false, stake: null, odds: null, winnings: null };
     return {
       open: true,
-      validated: /valid[eé]/i.test(txt(q(doc, '[data-qa="bet-confirmation-title"]'))),
+      validated: (() => {
+        const t = txt(q(modal, '[data-qa="bet-confirmation-title"]'));
+        return /\bpari\s+(?:est\s+)?valid[eé](?![a-zà-ÿ])/i.test(t) && !/\b(?:non|in|pas|refus[eé]?|échou[eé]?)\s*-?\s*valid|\binvalid|\brefus|\bpas\s+(?:été\s+)?valid/i.test(t);
+      })(),
       stake: money('[data-qa="bet-confirmation-stake-amount"] .potentialWinnings_value'),
-      odds: oddsOf(q(doc, '[data-qa="bet-confirmation-odds"] .potentialWinnings_value')),
+      odds: oddsOf(q(modal, '[data-qa="bet-confirmation-odds"] .potentialWinnings_value')),
       winnings: money('[data-qa="bet-confirmation-winnings-amount"]'),
     };
   }
 
+  // status: 'ongoing' (carte non terminée), 'won', 'lost', ou 'unknown' (carte is-ended sans preuve de résultat).
   function readMyBets(doc) {
     const m = (card, qa) => { const e = card.querySelector(`[data-qa="${qa}"]`); return e ? Clock.parseMoney(txt(e)) : null; };
     return Array.from(doc.querySelectorAll('bet-card')).map((c) => {
       const cls = c.className || '';
       const tag = txt(c.querySelector('[data-qa="bet-card-status-tag"]'));
-      let status = 'ongoing';
+      let status = /\bis-ended\b/.test(cls) ? 'unknown' : 'ongoing';
       if (/\bis-lost\b/.test(cls) || /perdu/i.test(tag)) status = 'lost';
       else if (/\bis-won\b/.test(cls) || /gagn[eé]/i.test(tag)) status = 'won';
       const ref = c.querySelector('[data-qa="bet-card-reference"]');
@@ -115,7 +121,7 @@
   }
 
   function readTimer(doc) {
-    const el = q(doc, 'sports-match-page-desktop .event_infoTime scoreboards-timer') || q(doc, 'scoreboards-timer');
+    const el = q(doc, 'sports-match-page-desktop .event_infoTime scoreboards-timer');
     return Clock.parseClock(el ? txt(el) : '');
   }
 

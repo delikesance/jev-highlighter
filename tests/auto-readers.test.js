@@ -87,15 +87,56 @@ test('readMyBets terminés', () => {
   assert.deepStrictEqual(b.map((x) => x.status), ['lost', 'won']);
   assert.strictEqual(b[1].stake, 3.5);
 });
-test('readTimer', () => {
-  const t = R.readTimer(load('fixture-slip-one.html'));
+const page = (inner) => new JSDOM(`<sports-match-page-desktop><div class="event_infoTime">${inner}</div></sports-match-page-desktop>`).window.document;
+test('readTimer: en-tête de match', () => {
+  const t = R.readTimer(page("<scoreboards-timer> 27' • 1ère mi-temps </scoreboards-timer>"));
   assert.strictEqual(t.elapsedSec, 1620);
+  assert.strictEqual(t.period, 'MT 1');
   assert.strictEqual(t.running, true);
-  assert.strictEqual(R.readTimer(new JSDOM('<p></p>').window.document).running, false);
 });
-test('readTimer: préfère l\'en-tête de match', () => {
+test('readTimer: pas de repli sur un timer de liste', () => {
+  assert.strictEqual(R.readTimer(load('fixture-slip-one.html')).running, false);
   const d = new JSDOM(`<scoreboards-timer>10'</scoreboards-timer><sports-match-page-desktop><div class="event_infoTime"><scoreboards-timer>44'</scoreboards-timer></div></sports-match-page-desktop>`).window.document;
   assert.strictEqual(R.readTimer(d).elapsedSec, 2640);
+});
+const slipWith = (fn) => { const d = load('fixture-slip-one.html'); fn(d); return R.readSlip(d).unknown; };
+test('unknown: Suspendu dans la carte', () => {
+  assert.deepStrictEqual(slipWith((d) => { const e = d.createElement('span'); e.textContent = 'Suspendu'; d.querySelector('.progressiveBettingSlip_cardContent').appendChild(e); }), ['Suspendu']);
+});
+test('unknown: Cotes modifiées à côté de #betBtn', () => {
+  assert.deepStrictEqual(slipWith((d) => { const e = d.createElement('div'); e.textContent = 'Cotes modifiées'; d.querySelector('#betBtn').parentNode.appendChild(e); }), ['Cotes modifiées']);
+});
+test('unknown: div.alert et bcdk-alert', () => {
+  assert.deepStrictEqual(slipWith((d) => { const e = d.createElement('div'); e.className = 'alert'; e.textContent = 'Erreur X'; d.querySelector('betting-slip-footer').appendChild(e); }), ['Erreur X']);
+  assert.deepStrictEqual(slipWith((d) => { const e = d.createElement('bcdk-alert'); e.innerHTML = '<p>Alerte Y</p>'; d.querySelector('sports-betting-slip').appendChild(e); }), ['Alerte Y']);
+});
+test('multiboost: conteneur mixte ne masque pas l\'erreur', () => {
+  assert.deepStrictEqual(slipWith((d) => { const e = d.createElement('betting-slip-alert'); e.innerHTML = '<div class="alert is-multiboost">Booste ton pari !</div><div class="alert is-error">Mise trop haute</div>'; d.querySelector('sports-betting-slip').appendChild(e); }), ['Mise trop haute']);
+});
+test('confirmation: non validé / invalidé refusés', () => {
+  for (const [t, ok] of [['Pari non validé', false], ['Pari invalidé', false], ['Ton pari n\'est pas validé', false], ['Super ! Ton pari est validé', true]]) {
+    const d = load('fixture-confirm-modal.html');
+    d.querySelector('[data-qa="bet-confirmation-title"]').textContent = t;
+    assert.strictEqual(R.readConfirmation(d).validated, ok, t);
+  }
+});
+test('mes paris: is-ended sans preuve -> unknown', () => {
+  const d = load('fixture-mybets-ended.html');
+  const c = d.querySelector('bet-card');
+  c.className = 'betCard is-ended';
+  c.querySelector('[data-qa="bet-card-status-tag"]').remove();
+  assert.strictEqual(R.readMyBets(d)[0].status, 'unknown');
+  assert.strictEqual(R.readMyBets(d)[1].status, 'won');
+});
+test('solde: deux portefeuilles -> null', () => {
+  const d = load('fixture-slip-one.html');
+  d.body.insertAdjacentHTML('beforeend', '<a class="header_walletBalance"><bc-header-animated-balance><span>9,00 €</span></bc-header-animated-balance></a>');
+  assert.strictEqual(R.readWallet(d), null);
+});
+test('cote: « x2 6,50 » jamais 2', () => {
+  const d = load('fixture-slip-one.html');
+  d.querySelector('betting-slip-footer-odds .btn_label').textContent = 'x2 6,50';
+  assert.strictEqual(R.readSlip(d).odds, null);
 });
 test('lecture seule: DOM inchangé', () => {
   for (const f of ['fixture-slip-one.html', 'fixture-confirm-modal.html', 'fixture-mybets-ended.html']) {

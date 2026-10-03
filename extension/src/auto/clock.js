@@ -6,7 +6,7 @@
   function parseClock(text) {
     const t = norm(text);
     const out = { elapsedSec: null, remainingSec: null, period: null, running: false };
-    const p = t.match(/\bMT\s*([12])\b/i) || null;
+    const p = t.match(/\bMT\s*([12])\b/i) || t.match(/\b([12])\s*(?:ère|ere|er|ème|eme|e)\s+mi[-\s]?temps\b/i);
     const q = t.match(/\bQ\s*([1-4])\b/i);
     if (p && !/^fin\b/i.test(t)) out.period = `MT ${p[1]}`;
     else if (q && !/^fin\b/i.test(t)) out.period = `Q${q[1]}`;
