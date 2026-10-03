@@ -1,0 +1,13 @@
+{
+  "name": "jev-highlighter",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "mock": "node tests/mock-server.js",
+    "backend": "node backend-example/server.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}
