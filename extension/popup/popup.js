@@ -72,6 +72,7 @@ async function loadSettings() {
 function toggleMode() {
   const backend = $('mode').value === 'backend';
   $('devFields').hidden = backend;
+  $('keyBox').hidden = backend;
   $('backendFields').hidden = !backend;
 }
 
@@ -86,6 +87,12 @@ $('save').addEventListener('click', async () => {
   });
   setMsg('');
   await loadSettings();
+});
+
+$('saveKey').addEventListener('click', async () => {
+  await chrome.storage.local.set({ apiKey: $('apiKey').value.trim() });
+  await loadSettings();
+  setMsg('Clef enregistrée.');
 });
 
 $('auto').addEventListener('change', (e) => chrome.storage.local.set({ autoAnalyze: e.target.checked }));

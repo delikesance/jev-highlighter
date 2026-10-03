@@ -1,0 +1,53 @@
+name: release
+
+# Publie une release Forgejo avec le zip de l'extension à chaque tag vX.Y.Z
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install & test
+        run: |
+          npm ci
+          npm test
+
+      - name: Set manifest version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$' || { echo "Tag invalide pour Chrome : $GITHUB_REF_NAME"; exit 1; }
+          node -e "
+            const f='extension/manifest.json';
+            const m=JSON.parse(require('fs').readFileSync(f,'utf8'));
+            m.version=process.argv[1];
+            require('fs').writeFileSync(f, JSON.stringify(m,null,2)+'\n');
+          " "$VERSION"
+          echo "ZIP_NAME=jev-highlighter-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
+
+      - name: Build zip
+        run: |
+          (cd extension && python3 -m zipfile -c "../$ZIP_NAME" .)
+          python3 -m zipfile -l "$ZIP_NAME" | head -20
+
+      - name: Create release and upload asset
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          set -e
+          ID=$(curl -fsS -X POST "$API/releases" \
+            -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"$GITHUB_REF_NAME\",\"name\":\"$GITHUB_REF_NAME\",\"body\":\"Extension JEV Highlighter $GITHUB_REF_NAME. Décompressez le zip puis chargez-le via chrome://extensions (mode développeur).\"}" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+          curl -fsS -X POST "$API/releases/$ID/assets?name=$ZIP_NAME" \
+            -H "Authorization: token $TOKEN" -F "attachment=@$ZIP_NAME" >/dev/null
+          echo "Release $GITHUB_REF_NAME publiée"
