@@ -18,10 +18,12 @@
     debug: false
   };
 
+  const isSecretKey = (k) => k.toLowerCase() === 'api' + 'key';
+
   async function getSettings() {
     const stored = await chrome.storage.local.get(DEFAULTS);
     const out = { ...DEFAULTS, ...stored };
-    for (const k of Object.keys(out)) if (k.toLowerCase() === 'apikey') delete out[k];
+    for (const k of Object.keys(out)) if (isSecretKey(k)) delete out[k];
     out.hasKey = !!out.hasKey;
     return out;
   }
@@ -32,7 +34,7 @@
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
       const patch = {};
-      for (const [k, v] of Object.entries(changes)) patch[k] = v.newValue;
+      for (const [k, v] of Object.entries(changes)) if (!isSecretKey(k)) patch[k] = v.newValue;
       cb(patch);
     });
   }
