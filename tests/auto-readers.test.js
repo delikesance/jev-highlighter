@@ -76,6 +76,11 @@ test('readSlip: promotion Boost connue et suffixe EUR de cote ignorés', () => {
   d.querySelector('betting-slip-odds-field').insertAdjacentHTML('beforeend', '<span>EUR</span>');
   assert.deepStrictEqual(R.readSlip(d).unknown, []);
 });
+test('readSlip: suffixe EUR directement dans le composant de cote ignoré', () => {
+  const d = load('fixture-slip-one.html');
+  d.querySelector('betting-slip-odds-field').append('EUR');
+  assert.deepStrictEqual(R.readSlip(d).unknown, []);
+});
 test('readWallet', () => {
   assert.strictEqual(R.readWallet(load('fixture-slip-one.html')), 6.53);
   assert.strictEqual(R.readWallet(new JSDOM('<p></p>').window.document), null);

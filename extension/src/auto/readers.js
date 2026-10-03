@@ -33,7 +33,7 @@
     // Promotion non décisionnelle, admise seulement avec sa formulation exacte dans le bandeau du ticket.
     ['betting-slip-alert, betting-slip-alert *', (el) => !!el.closest('betting-slip-alert'), (t) => BOOST_COPY.test(t)],
     // Le site peut rendre le suffixe de devise hors du composant numérique de cote.
-    ['betting-slip-footer-odds *, betting-slip-odds-field *', (el) => !!el.closest('betting-slip-footer-odds, betting-slip-odds-field'), (t) => t === 'EUR'],
+    ['betting-slip-footer-odds, betting-slip-footer-odds *, betting-slip-odds-field, betting-slip-odds-field *', (el) => !!el.closest('betting-slip-footer-odds, betting-slip-odds-field'), (t) => t === 'EUR'],
     ['.progressiveBettingSlip_cardMarketLabel', () => true, () => true],
     ['.progressiveBettingSlip_cardMarketValue', () => true, () => true],
     ['.progressiveBettingSlip_footerLabel', () => true, () => true],
