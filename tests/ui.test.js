@@ -44,7 +44,7 @@ test('suggestStake : renvoie les étapes (cellules + index) pour le zoom', async
     const keys = Object.keys(q.criteria).filter((k) => k !== 'Ne pas miser');
     return { [id]: { type: 'choice', choice: keys[Math.min(3, keys.length - 1)], confidence: 0.5, probabilities: {} } };
   };
-  const r = await suggestStake({ wallet: 5.9, totalOdds: 2, selections: [] }, ask);
+  const r = await suggestStake({ wallet: 59, totalOdds: 2, selections: [] }, ask);
   assert.equal(r.rounds.length, 3);
   for (const round of r.rounds) {
     assert.ok(Array.isArray(round.cells) && round.cells.length >= 2);

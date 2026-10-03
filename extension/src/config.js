@@ -61,7 +61,8 @@
     stake: {
       cells: 10, // tranches proposées à chaque tour
       maxRounds: 3, // ex. solde 5,90 € : tranches de 1 € -> 0,10 € -> 0,01 €
-      maxFractionOfWallet: 1, // plafond de mise = fraction du solde (1 = tout le solde)
+      maxFractionOfWallet: 0.1, // plafond dur = 10 % du solde : jamais all-in
+      oddsRiskRef: 3, // au-delà de cette cote totale, le plafond est réduit (cap × ref / cote) : combiné = plus risqué
       minStake: 0.1,
       debounceMs: 1500,
       debounceMaxWaitMs: 3000

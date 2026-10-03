@@ -49,13 +49,13 @@ function fakeAsk(target, log) {
 
 test('suggestStake : affinage jusqu\'au centime, sans dépasser le solde', async () => {
   const log = [];
-  const ctx = { wallet: 5.9, totalOdds: 2.75, selections: [{ selection: 'Nul' }] };
+  const ctx = { wallet: 59, totalOdds: 2.75, selections: [{ selection: 'Nul' }] };
   const r = await suggestStake(ctx, fakeAsk(2.34, log));
   assert.equal(log.length, 3);
   assert.ok(Math.abs(r.amount - 2.34) <= 0.011, `montant ${r.amount}`);
-  assert.ok(r.amount <= 5.9);
+  assert.ok(r.amount <= 5.9); // plafond = 10 % de 59 €
   assert.equal(r.potentialWinnings, Math.round(r.amount * 2.75 * 100) / 100);
-  assert.equal(log[0].state.wallet_eur, 5.9);
+  assert.equal(log[0].state.wallet_eur, 59);
   assert.ok('Ne pas miser' in log[0].questions.stake_round_1.criteria);
   assert.ok(!('Ne pas miser' in log[1].questions.stake_round_2.criteria));
   assert.ok(!JSON.stringify(log).includes('element'));
@@ -67,4 +67,18 @@ test('suggestStake : « ne pas miser », solde trop bas, réponse invalide', asy
   assert.equal(none.none, true);
   assert.equal((await suggestStake({ ...ctx, wallet: 0.05 }, async () => ({}))).reason, 'wallet-too-low');
   await assert.rejects(suggestStake(ctx, async () => ({ stake_round_1: { choice: '9,00 à 9,99 €' } })), /invalide/);
+});
+
+test('suggestStake : jamais all-in (plafond 10 % du solde, réduit sur les grosses cotes)', async () => {
+  const seen = [];
+  const ask = async (body) => {
+    const [id, q] = Object.entries(body.questions)[0];
+    const keys = Object.keys(q.criteria).filter((k) => k !== 'Ne pas miser');
+    seen.push(body.state);
+    return { [id]: { type: 'choice', choice: keys[keys.length - 1], confidence: 0.9, probabilities: {} } }; // JEV vise la tranche la plus haute
+  };
+  const r = await suggestStake({ wallet: 100, totalOdds: 2, selections: [] }, ask);
+  assert.ok(r.amount <= 10, `montant ${r.amount}`);
+  const combo = await suggestStake({ wallet: 100, totalOdds: 12, selections: [] }, ask);
+  assert.ok(combo.amount <= 2.5, `combiné ${combo.amount}`); // 10 % × 3/12
 });
