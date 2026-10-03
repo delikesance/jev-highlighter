@@ -378,7 +378,7 @@
   // ------------------------------------------------------------------ mode Auto (expert, désactivé par défaut)
   // autoMode faux => rien ici ne s'exécute. Jamais d'armement automatique : seul le bouton « Armer » du panneau arme.
 
-  const auto = { started: false, rt: null, ui: null, timer: null, running: false };
+  const auto = { started: false, rt: null, ui: null, timer: null, running: false, cancelled: false, stop: null };
 
   async function startAuto() {
     if (window !== window.top) return; // jamais de runtime Auto dans un sous-cadre
@@ -437,23 +437,37 @@
 
     // Planificateur séquentiel : un seul step() à la fois, le suivant n'est programmé qu'après la fin du précédent.
     const schedule = () => {
-      if (auto.timer || auto.running) return;
+      if (auto.cancelled || auto.timer || auto.running) return;
       auto.timer = setTimeout(loop, CONFIG.auto.stepMs);
     };
     async function loop() {
       auto.timer = null;
+      if (auto.cancelled) return;
       auto.running = true;
       let r = 'STOPPED';
-      try { r = await rt.controller.step(); } catch (e) { alog('step : erreur', e && e.message); }
+      try { r = await rt.controller.step(); } catch (e) { await rt.stop('step : ' + (e && e.message)); }
       auto.running = false;
       refresh();
       if (r !== 'STOPPED' && r !== 'IDLE') schedule();
     }
 
+    auto.stop = async (reason) => {
+      auto.cancelled = true;
+      clearTimeout(auto.timer);
+      auto.timer = null;
+      await rt.stop(reason);
+      refresh();
+    };
     auto.ui = A.UI.mount(
       {
-        stop: async (reason) => { await rt.stop(reason); refresh(); },
-        arm: async (phrase, o) => { await rt.controller.arm(phrase, o); refresh(); schedule(); }
+        stop: auto.stop,
+        arm: async (phrase, o) => {
+          if (!st.settings.autoMode) return;
+          await rt.controller.arm(phrase, o);
+          const s = await status();
+          auto.ui.refresh(s);
+          if (s.phase === 'ARMED' && !s.stopped) { auto.cancelled = false; schedule(); }
+        }
       },
       { doc: document, getStatus: status }
     );
@@ -479,7 +493,7 @@
     if (['autoAnalyze', 'reorderPicks', 'dockOpen', 'dockCollapsed'].some((k) => k in patch)) refreshUI();
     if ('matchContext' in patch) st.cache.clear(); // le contexte change la requête : on ré-analysera
     if (patch.autoMode === true) startAuto().catch((e) => warn('Mode Auto', e && e.message));
-    else if (patch.autoMode === false && auto.rt) auto.rt.stop('Mode Auto désactivé').catch(() => {});
+    else if (patch.autoMode === false && auto.stop) auto.stop('Mode Auto désactivé').catch(() => {});
     if ('stakeAdvice' in patch) {
       stakeState.fp = null;
       scheduleStake();

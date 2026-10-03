@@ -202,16 +202,30 @@
       },
       async CHOIX(st) {
         const event = selector.pickEvent(st.events || [], new Set(st.tried || []), quickCountFor);
-        if (!event) { await set({ phase: 'PAUSE', events: null }); return 'PAUSE'; }
+        if (!event) {
+          const message = 'Aucun événement en cours éligible : nouvelle recherche après la pause.';
+          log(message);
+          await set({ phase: 'PAUSE', events: null, message });
+          return 'PAUSE';
+        }
         const url = safeUrl(event.href);
         if (!url) { await stop('navigation refusée (hôte non vérifié) : ' + event.href); return 'STOPPED'; }
-        await set({ phase: 'ANALYSE', event, events: null });
+        await set({ phase: 'ANALYSE', event, events: null, message: null });
         deps.navigate(url);
         return 'ANALYSE';
       },
       async ANALYSE(st) {
         const event = st.event;
-        const markets = selector.quickMarkets(readMarkets(), event.sport, cfg);
+        let markets = selector.quickMarkets(readMarkets(), event.sport, cfg);
+        // Une navigation peut reprendre avant que les composants Angular aient rendu les marchés.
+        const waitMs = Number.isFinite(cfg.slipWaitMs) ? cfg.slipWaitMs : 3000;
+        const pollMs = Number.isFinite(cfg.pollMs) ? cfg.pollMs : 250;
+        for (let waited = 0; !markets.length && waited < waitMs; waited += pollMs) {
+          if (await store.stopFlag()) return 'STOPPED';
+          await sleep(pollMs);
+          markets = selector.quickMarkets(readMarkets(), event.sport, cfg);
+        }
+        if (await store.stopFlag()) return 'STOPPED';
         const matches = markets.length ? await deps.analyze(markets, { event }) : [];
         const picks = selector.pickSelections(matches, markets, cfg, event.sport);
         const p = picks[0];
@@ -281,6 +295,7 @@
       },
       async PAUSE() {
         await sleep(pauseMs);
+        if (await store.stopFlag()) return 'STOPPED';
         await set({ phase: 'SCAN' });
         return 'SCAN';
       }

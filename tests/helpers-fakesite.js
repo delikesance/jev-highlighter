@@ -60,6 +60,7 @@ ${SLIP_EMPTY}</body></html>`;
       .replace(' Parier ', ` ${o.betLabel} `)
       .replace('id="betBtn"', o.betLabelEnabled ? 'id="betBtn"' : 'id="betBtn" disabled');
     slipRoot().outerHTML = one;
+    if (o.noCardWrapper) doc.querySelector('.progressiveBettingSlip_card').classList.remove('progressiveBettingSlip_card');
     if (o.extraBanner) {
       const a = doc.createElement('betting-slip-alert');
       a.innerHTML = `<div class="alert is-error">${o.extraBanner}</div>`;
@@ -112,7 +113,12 @@ ${SLIP_EMPTY}</body></html>`;
       if (!t.closest('#betBtn').disabled && !o.noModal) openModal();
       return;
     }
-    if (t.closest('.icon_close') || t.querySelector('.icon_close')) { spy.iconClose += 1; renderEmpty(); return; }
+    if (t.closest('.icon_close') || t.querySelector('.icon_close')) {
+      spy.iconClose += 1;
+      if (o.asyncRemoveDelayMs !== undefined) timers.push({ due: clock + o.asyncRemoveDelayMs, fn: renderEmpty });
+      else renderEmpty();
+      return;
+    }
     if (t.closest('[data-qa=bet-confirmation-close-selections]')) {
       spy.close += 1; doc.querySelector('.cdk-overlay-container').remove(); renderEmpty(); return;
     }

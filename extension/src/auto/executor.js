@@ -30,6 +30,7 @@
     const slipWaitMs = num(cfg.slipWaitMs) ? cfg.slipWaitMs : 3000;
     const pollMs = num(cfg.pollMs) ? cfg.pollMs : 250;
     let inProgress = false;
+    let removalAttempted = false;
 
     const visible = () => doc.visibilityState === 'visible';
     const fail = (reason) => { throw new Halt(reason); };
@@ -131,23 +132,36 @@
     }
 
     // Ne retire que NOTRE sélection : une seule carte, identique à la décision. Sinon rien (journalisé).
-    function removeOurSelection(d) {
+    async function removeOurSelection(d) {
       const s = readers.readSlip(doc);
       if (s.count === 0) return true;
       const want = d.window === null ? null : Clock.parseWindow(d.window);
-      if (s.count !== 1 || norm(s.selection) !== norm(d.label) || norm(s.market) !== baseTitle(d.marketTitle) || !sameWin(s.window, want)) {
+      if (s.count !== 1 || norm(s.event) !== norm(d.event) || norm(s.selection) !== norm(d.label) || norm(s.market) !== baseTitle(d.marketTitle) || !sameWin(s.window, want)) {
         log('retrait refusé : la carte du ticket n\'est pas (seulement) la nôtre', { count: s.count, selection: s.selection });
         return false;
       }
-      const icon = doc.querySelector('sports-betting-slip .progressiveBettingSlip_card .icon_close');
-      if (!icon || !visible()) return false;
-      (icon.closest('button') || icon).click();
-      return readers.readSlip(doc).count === 0;
+      const cards = doc.querySelectorAll('sports-betting-slip betting-slip-selection-card');
+      if (cards.length !== 1 || removalAttempted) return false;
+      const card = cards[0];
+      const buttons = new Set(Array.from(card.querySelectorAll('.icon_close')).map((icon) => icon.closest('button') || icon));
+      if (buttons.size !== 1 || !visible()) { log('retrait impossible', { cards: cards.length, boutons: buttons.size }); return false; }
+      const button = buttons.values().next().value;
+      if (!card.contains(button) || button.disabled) return false;
+      removalAttempted = true;
+      click(button);
+      const t0 = now();
+      for (;;) {
+        const after = readers.readSlip(doc);
+        if (after.count === 0 && !doc.querySelector('sports-betting-slip betting-slip-selection-card')) return true;
+        if (after.count > 1 || now() - t0 >= slipWaitMs) return false;
+        await sleep(pollMs);
+      }
     }
 
     async function place(d) {
       if (inProgress) return { status: 'refused', reason: 'busy' };
       inProgress = true;
+      removalAttempted = false;
       try { return await run(d); } finally { inProgress = false; }
     }
 
@@ -156,7 +170,7 @@
       const halt = async (reason) => {
         let removed = null;
         if (ctx.ours && !ctx.betClicked) {
-          try { removed = removeOurSelection(d); } catch (e) { removed = false; }
+          try { removed = await removeOurSelection(d); } catch (e) { removed = false; }
         }
         if (!ctx.betClicked) {
           // Aucun clic de validation : rien n'est engagé, on annule réserve et « validation en cours ».
@@ -224,7 +238,7 @@
 
         // 4. Mode à blanc
         if (d.dryRun) {
-          if (!removeOurSelection(d)) fail('mode à blanc : retrait de la sélection impossible');
+          if (!(await removeOurSelection(d))) fail('mode à blanc : retrait de la sélection impossible');
           log('dry', { marketTitle: d.marketTitle, window: d.window, label: d.label, stake, odds: s.odds });
           return { status: 'dry', reason: 'mode à blanc', stake, odds: s.odds };
         }

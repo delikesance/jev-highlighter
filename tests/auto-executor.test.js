@@ -65,6 +65,27 @@ test('dry-run : #betBtn jamais cliqué, ticket revenu vide', async () => {
   assert.strictEqual(s.site.slipCount(), 0);
   assert.strictEqual(s.guard.state.reserved, 0);
 });
+test('dry-run : attend le retrait Angular asynchrone et ne clique la croix qu’une fois', async () => {
+  const s = setup({ asyncRemoveDelayMs: 1000 });
+  const r = await s.ex.place({ ...DEC, dryRun: true });
+  assert.strictEqual(r.status, 'dry', r.reason);
+  assert.strictEqual(s.site.spy.iconClose, 1);
+  assert.strictEqual(s.site.spy.betBtn, 0);
+  assert.strictEqual(s.site.slipCount(), 0);
+});
+test('dry-run : retrait ancré à selection-card sans wrapper cosmétique', async () => {
+  const s = setup({ noCardWrapper: true });
+  const r = await s.ex.place({ ...DEC, dryRun: true });
+  assert.strictEqual(r.status, 'dry', r.reason);
+  assert.strictEqual(s.site.spy.iconClose, 1);
+});
+test('dry-run : retrait sans réponse arrête après délai sans recliquer', async () => {
+  const s = setup({ asyncRemoveDelayMs: Infinity });
+  const r = await s.ex.place({ ...DEC, dryRun: true });
+  assert.strictEqual(r.status, 'halt');
+  assert.strictEqual(s.site.spy.iconClose, 1);
+  assert.strictEqual(s.site.spy.betBtn, 0);
+});
 
 test('cote qui bouge après la mise > maxDriftPct → halt + retrait', async () => {
   const s = setup({ driftAfterStake: 2.3 });

@@ -349,5 +349,22 @@ test('smoke Auto : adaptateur analyze -> JEV_EVALUATE + matches ; parseMarkets -
   assert.equal(doc.querySelectorAll('.jev-recommended-bet').length, 0);
 });
 
+test('smoke Auto : STOP annule un step programmé', async () => {
+  let steps = 0;
+  let stopped = false;
+  const { doc } = boot(fixture(), { autoMode: true, __before: (w) => {
+    w.JEV.CONFIG.auto.stepMs = 100;
+    w.JEV.Auto.Wiring.createRuntime = () => ({
+      store: { get: async () => ({ phase: stopped ? 'STOPPED' : 'SCAN' }) },
+      stop: async () => { stopped = true; },
+      controller: { init: async () => 'SCAN', arm: async () => {}, step: async () => { steps++; return 'SCAN'; } }
+    });
+  } });
+  await wait(30);
+  doc.querySelector('jev-auto').shadowRoot.querySelector('[data-k="stop"]').click();
+  await wait(170);
+  assert.equal(steps, 0);
+});
+
 // fermeture des fenêtres jsdom (timers/observers) pour que le process puisse se terminer
 test('cleanup', () => open.forEach((c) => c()));
