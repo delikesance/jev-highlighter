@@ -20,7 +20,7 @@ const over = [
   ['maxStakeFraction', 0.11], ['maxLossFraction', 0.51], ['maxBets', 6], ['maxLosses', 4],
   ['minOdds', 1.19], ['maxOdds', 6.01], ['maxDriftPct', 5.1], ['minLeadSec', 59],
   ['minConfidence', 0.49], ['confirmTimeoutMs', 15001], ['hiddenTabMs', 10001],
-  ['slipWaitMs', 10001], ['slipWaitMs', 0], ['pollMs', 49], ['pollMs', 1001]
+  ['slipWaitMs', 10001], ['slipWaitMs', 0], ['identifyRetries', 6], ['identifyRetries', 0], ['identifyRetries', 2.5], ['pollMs', 49], ['pollMs', 1001]
 ];
 for (const [k, v] of over) {
   test(`refuse ${k}=${v}`, () => {
