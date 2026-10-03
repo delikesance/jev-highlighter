@@ -29,3 +29,18 @@ test('getSettings sans apiKey', async () => {
     global.chrome = real;
   }
 });
+
+test('onSettingsChanged ne transmet jamais la clé', () => {
+  const real = global.chrome;
+  let handler;
+  global.chrome = { storage: { onChanged: { addListener: (fn) => (handler = fn) } } };
+  try {
+    const Storage = require('../extension/src/storage');
+    const patches = [];
+    Storage.onSettingsChanged((p) => patches.push(p));
+    handler({ apiKey: { newValue: 'k' }, debug: { newValue: true } }, 'local');
+    assert.deepEqual(patches, [{ debug: true }]);
+  } finally {
+    global.chrome = real;
+  }
+});
