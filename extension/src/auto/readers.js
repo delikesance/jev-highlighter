@@ -21,6 +21,8 @@
   const EMPTY_SLIP_COPY = new Set(['Place un nouveau pari', 'On croise les doigts pour toi !']);
   const BOOST_COPY = /^Booste ton pari\s*!?\s*Ajoute (?:une|1) sélection supérieure à 1[,.]20$/i;
   const selectionCount = (t) => /^\d+\s+s[eé]lections?$/i.test(t);
+  const fold = (t) => String(t).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const DANGER_COPY = /\b(?:suspendu|indisponible|erreur|refus|impossible|echoue|invalide)\b|\bmodifi|\bcotes?\s+(?:ont\s+)?change|\baccepter les cotes\b/;
   const first = (el, ctx, sel) => { const c = el.closest(ctx); return !!c && c.querySelector(sel) === el; };
   const KNOWN = [
     ['.progressiveBettingSlip_cardEventName .ellipsis', (el) => first(el, '.progressiveBettingSlip_cardEventName', '.ellipsis'), () => true],
@@ -44,6 +46,11 @@
     ['betting-slip-alert .is-multiboost, .alert.is-multiboost', () => true, () => true],
   ];
   const isKnownText = (el, own) => KNOWN.some(([sel, ctx, form]) => el.matches(sel) && ctx(el) && form(own));
+  const isActionAlert = (el) => {
+    const alert = el.closest('bcdk-alert, .alert');
+    if (alert && !alert.classList.contains('is-multiboost')) return true;
+    return !!el.closest('betting-slip-alert') && !el.closest('.is-multiboost');
+  };
 
   function collectUnknown(doc) {
     const out = [];
@@ -53,7 +60,9 @@
       let own = '';
       for (const n of el.childNodes) if (n.nodeType === 3) own += n.nodeValue;
       own = own.replace(/[\u00a0\u202f\s]+/g, ' ').trim();
-      if (own && !isKnownText(el, own)) out.push(own);
+      // Les textes décoratifs/promotionnels évoluent souvent. On ne remonte que les alertes explicites
+      // ou les formulations dangereuses ; les invariants du ticket restent vérifiés par l'exécuteur.
+      if (own && !isKnownText(el, own) && (isActionAlert(el) || DANGER_COPY.test(fold(own)))) out.push(own);
       for (const c of el.children) walk(c);
     };
     for (const c of slip.children) walk(c);
