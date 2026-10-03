@@ -236,7 +236,7 @@
         ctx.reserved = stake;
         ctx.pending = true;
         await store.set({
-          pending: { marketTitle: d.marketTitle, window: d.window, stake, odds: s.odds, at: now(), reservedInSnap: true },
+          pending: { marketTitle: d.marketTitle, window: d.window, stake, odds: s.odds, at: now(), reservedInSnap: true, execId: d.execId == null ? null : d.execId },
           guardSnap: guard.snapshot()
         });
         await stopCheck(6);
@@ -266,7 +266,7 @@
 
         // +1 PUIS écriture atomique { pending: null, lastPlaced, guardSnap } : aucune fenêtre où le pari n'est compté nulle part.
         guard.recordPlaced();
-        const lastPlaced = { marketTitle: d.marketTitle, window: d.window, label: d.label, event: d.event, stake, odds, at: now() };
+        const lastPlaced = { marketTitle: d.marketTitle, window: d.window, label: d.label, event: d.event, stake, odds, at: now(), execId: d.execId == null ? null : d.execId };
         await store.set({ pending: null, lastPlaced, guardSnap: guard.snapshot() });
         const close = doc.querySelector('sports-bet-confirmation-modal [data-qa="bet-confirmation-close-selections"]');
         if (close && visible()) click(close);
