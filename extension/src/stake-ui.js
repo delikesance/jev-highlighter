@@ -1,112 +1,129 @@
 /**
- * Panneau de suggestion de mise, affiché au-dessus du champ de mise dans le calque fixe.
- * Affichage seul : le champ de mise du site n'est jamais modifié. Le bouton « Copier » ne touche
- * que le presse-papiers, sur clic de l'utilisateur.
+ * Assistant de mise : module inséré dans le ticket, juste avant le champ de mise.
+ * Affichage seul : le champ de mise du site n'est jamais modifié. « Copier » ne touche que le presse-papiers,
+ * sur clic de l'utilisateur.
  */
 (function (root) {
   const J = root.JEV;
-  const { Highlighter, fmtMoney, formatPct } = J;
+  const { UI, fmtMoney, formatPct } = J;
 
-  let panel = null;
-  let anchor = null;
+  let host = null;
+  let shadow = null;
+  let anchorInput = null;
+  let detailOpen = false;
+  let lastRender = null;
 
-  function el(tag, cls, txt) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (txt != null) n.textContent = txt;
-    return n;
-  }
-
-  function ensure() {
-    if (!panel || !panel.isConnected) {
-      panel = el('div', 'jev-stake');
-      Highlighter.getOverlay().appendChild(panel);
+  function ensureHost(input) {
+    anchorInput = input;
+    const target = input.closest('betting-slip-footer-stake-input') || input.parentElement;
+    if (!target || !target.parentElement) return false;
+    if (!host) {
+      const made = UI.makeHost('jev-stake');
+      host = made.host;
+      shadow = made.shadow;
+      host.style.display = 'block';
     }
-    return panel;
+    if (host.nextElementSibling !== target) target.parentElement.insertBefore(host, target);
+    return true;
   }
 
-  function reposition() {
-    if (!panel || !panel.isConnected || !anchor || !anchor.isConnected) return hide();
-    const r = anchor.getBoundingClientRect();
-    const visible = r.width > 0 && r.bottom > 0 && r.top < innerHeight;
-    panel.style.visibility = visible ? 'visible' : 'hidden';
-    panel.style.left = `${Math.round(r.left)}px`;
-    panel.style.bottom = `${Math.round(innerHeight - r.top + 6)}px`;
-    panel.style.minWidth = `${Math.round(r.width)}px`;
+  function reset() {
+    for (const n of [...shadow.children]) if (n.tagName !== 'LINK') n.remove();
+    const sec = UI.el('section', 'stake');
+    shadow.appendChild(sec);
+    return sec;
   }
 
   function showStatus(message, input, isError) {
-    anchor = input;
-    const p = ensure();
-    p.replaceChildren(el('div', `jev-stake__title${isError ? ' jev-stake__title--err' : ''}`, `★ JEV · ${message}`));
-    reposition();
+    if (!ensureHost(input)) return;
+    lastRender = null;
+    const sec = reset();
+    const head = UI.el('div', 'stake__head');
+    head.append(UI.el('span', 'pill pill--amber', '★ JEV'), UI.el('span', 'stake__sub', 'Mise suggérée'));
+    sec.appendChild(head);
+    sec.appendChild(UI.el('div', isError ? 'stake__err' : 'stake__line', message));
+  }
+
+  function step(label, round, cols) {
+    const wrap = UI.el('div');
+    const head = UI.el('div', 'step__head');
+    const range = `${fmtMoney(round.lo)} – ${fmtMoney(round.hi)} €`;
+    head.append(UI.el('span', null, label), UI.el('span', 'mono', range));
+    const grid = UI.el('div', 'cells');
+    grid.style.gridTemplateColumns = `repeat(${Math.max(1, round.cells.length)}, 1fr)`;
+    round.cells.forEach((_, i) => grid.appendChild(UI.el('div', `cell${i === round.index ? ' cell--on' : ''}`)));
+    wrap.append(head, grid);
+    return wrap;
   }
 
   function show(result, ctx, input) {
-    anchor = input;
-    const p = ensure();
-    p.replaceChildren();
-    p.appendChild(el('div', 'jev-stake__title', '★ JEV · mise suggérée'));
+    lastRender = { result, ctx };
+    if (!ensureHost(input)) return;
+    const sec = reset();
+
+    const head = UI.el('div', 'stake__head');
+    head.append(UI.el('span', 'pill pill--amber', '★ JEV'), UI.el('span', 'stake__sub', 'Mise suggérée'));
+    sec.appendChild(head);
 
     if (result.none) {
-      p.appendChild(
-        el(
-          'div',
-          'jev-stake__sub',
-          result.reason === 'wallet-too-low' ? 'Solde insuffisant pour une mise.' : 'JEV préfère ne pas miser sur ce pari.'
-        )
+      sec.appendChild(
+        UI.el('div', 'stake__line', result.reason === 'wallet-too-low' ? 'Solde insuffisant pour une mise.' : 'JEV préfère ne pas miser sur ce pari.')
       );
     } else {
-      const row = el('div', 'jev-stake__row');
-      row.appendChild(el('span', 'jev-stake__amount', `${fmtMoney(result.amount)} €`));
-      const copy = el('button', 'jev-stake__copy', 'Copier');
+      const amount = UI.el('div', 'stake__amount mono');
+      amount.append(document.createTextNode(fmtMoney(result.amount).replace(' ', '')), UI.el('small', null, ' €'));
+      sec.appendChild(amount);
+
+      const line = UI.el('div', 'stake__line');
+      line.append(document.createTextNode('Gains possibles '), UI.el('b', null, `${fmtMoney(result.potentialWinnings)} €`));
+      sec.appendChild(line);
+
+      const actions = UI.el('div', 'stake__actions');
+      const copy = UI.el('button', 'jbtn jbtn--primary', `Copier ${fmtMoney(result.amount)}`);
       copy.type = 'button';
-      copy.addEventListener('click', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+      copy.addEventListener('click', async () => {
+        const label = copy.textContent;
         try {
           await navigator.clipboard.writeText(fmtMoney(result.amount));
           copy.textContent = 'Copié';
         } catch {
           copy.textContent = 'Échec';
         }
-        setTimeout(() => (copy.textContent = 'Copier'), 1500);
+        setTimeout(() => (copy.textContent = label), 1500);
       });
-      row.appendChild(copy);
-      p.appendChild(row);
+      const more = UI.el('button', 'jbtn jbtn--ghost', detailOpen ? 'Masquer' : 'Détail');
+      more.type = 'button';
+      more.setAttribute('aria-expanded', String(detailOpen));
+      more.addEventListener('click', () => {
+        detailOpen = !detailOpen;
+        if (lastRender) show(lastRender.result, lastRender.ctx, anchorInput);
+      });
+      actions.append(copy, more);
+      sec.appendChild(actions);
 
-      const conf = result.rounds.map((r) => r.confidence).filter((c) => typeof c === 'number');
-      const avg = conf.length ? conf.reduce((a, b) => a + b, 0) / conf.length : null;
-      p.appendChild(
-        el(
-          'div',
-          'jev-stake__sub',
-          `Gains possibles ${fmtMoney(result.potentialWinnings)} € · cote ${ctx.totalOdds}` +
-            ` · affiné en ${result.rounds.length} étape${result.rounds.length > 1 ? 's' : ''}` +
-            (avg != null ? ` · conf. ${formatPct(avg)}` : '')
-        )
-      );
+      if (detailOpen) {
+        const detail = UI.el('div', 'stake__detail');
+        const labels = ['1 · Tranche', '2 · Affinage', '3 · Précision'];
+        result.rounds.forEach((r, i) => detail.appendChild(step(labels[i] || `${i + 1}`, r)));
+        const conf = result.rounds.map((r) => r.confidence).filter((c) => typeof c === 'number');
+        if (conf.length) detail.appendChild(UI.el('div', 'stake__sub', `Confidence moyenne ${formatPct(conf.reduce((a, b) => a + b, 0) / conf.length)}`));
+        sec.appendChild(detail);
+      }
     }
-    p.appendChild(el('div', 'jev-stake__note', 'Suggestion du modèle, pas une garantie. Jouez avec modération.'));
-    reposition();
+    sec.appendChild(
+      UI.el('div', 'stake__note', 'Tu saisis le montant toi-même : l’extension ne remplit jamais la mise et ne lance aucun pari. Suggestion du modèle, pas une garantie. Joue avec modération.')
+    );
   }
 
   function hide() {
-    anchor = null;
-    if (panel) panel.remove();
-    panel = null;
+    if (host) host.remove();
+    host = shadow = anchorInput = lastRender = null;
   }
 
-  let raf = 0;
-  const schedule = () => {
-    if (raf || !panel) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
-      reposition();
-    });
-  };
-  addEventListener('scroll', schedule, true);
-  addEventListener('resize', schedule);
+  /** Ré-insère le module si la SPA l'a retiré. */
+  function reposition() {
+    if (host && anchorInput && anchorInput.isConnected) ensureHost(anchorInput);
+  }
 
   Object.assign(J, { StakeUI: { show, showStatus, hide, reposition } });
 })(globalThis);

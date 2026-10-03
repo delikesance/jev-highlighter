@@ -1,87 +1,70 @@
 /**
- * Highlight non destructif : classes CSS sur le bouton + badge dans un calque fixe (textContent uniquement).
- * Le contenu d'origine du bouton n'est jamais modifié. Aucun clic, aucune saisie.
+ * Highlight non destructif : anneau (classe CSS) sur le bouton du site + pastille/barre/tooltip dans le calque
+ * fixe de l'extension. Le contenu du bouton n'est jamais modifié. Aucun clic, aucune saisie.
  */
 (function (root) {
   const J = root.JEV;
-  const { log, formatPct } = J;
+  const { log, formatPct, UI } = J;
 
-  const CLS = { rec: 'jev-recommended-bet', best: 'jev-best-bet', badge: 'jev-badge', overlay: 'jev-overlay' };
-  /** bouton -> { badge, isBest } */
+  const CLS = { rec: 'jev-recommended-bet', best: 'jev-best-bet', pulse: 'jev-pulse' };
+  /** bouton -> { chip, bar, rec, isBest } */
   const active = new Map();
-  let overlay = null;
+  let tip = null;
 
-  // Les badges vivent dans un calque global en position:fixed, hors du flux du site :
-  // aucun overflow:hidden, grille ou z-index du bookmaker ne peut les masquer ou décaler la mise en page.
-  function getOverlay() {
-    if (!overlay || !overlay.isConnected) {
-      overlay = document.createElement('div');
-      overlay.className = CLS.overlay;
-      document.documentElement.appendChild(overlay);
-    }
-    return overlay;
+  const pctNum = (x) => (typeof x === 'number' ? Math.round(x * 100) : '—');
+
+  function buildParts(rec, isBest) {
+    const chip = UI.el('div', `chip${isBest ? ' chip--top' : ''}`, isBest ? '★ TOP PICK' : `★ ${pctNum(rec.jevScore)}`);
+    chip.setAttribute('role', 'note');
+    const bar = UI.el('div', `bar${isBest ? ' bar--top' : ''}`);
+    const fill = document.createElement('i');
+    fill.style.width = `${Math.max(0, Math.min(100, pctNum(rec.jevScore) || 0))}%`;
+    bar.appendChild(fill);
+    return { chip, bar };
   }
 
-  function makeBadge(rec, isBest) {
-    const badge = document.createElement('span');
-    badge.className = CLS.badge + (isBest ? ' jev-badge--top' : '');
-    badge.setAttribute('role', 'note');
-    badge.title = 'Score de préférence JEV — ce n’est pas une probabilité réelle de gain.';
-
-    const star = document.createElement('span');
-    star.textContent = isBest ? '★ JEV TOP PICK' : '★ JEV';
-    badge.appendChild(star);
-
-    const score = document.createElement('span');
-    score.className = 'jev-badge__score';
-    score.textContent = formatPct(rec.jevScore);
-    badge.appendChild(score);
-
-    if (typeof rec.confidence === 'number') {
-      const conf = document.createElement('span');
-      conf.className = 'jev-badge__conf';
-      conf.textContent = `conf. ${formatPct(rec.confidence)}`;
-      badge.appendChild(conf);
-    }
-    return badge;
+  /** Visible = dans la fenêtre ET pas recouvert (header collant) ni rogné par un conteneur scrollable. */
+  function isReallyVisible(button, r) {
+    if (!(r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth)) return false;
+    const el = document.elementFromPoint(
+      Math.min(Math.max(r.left + r.width / 2, 0), innerWidth - 1),
+      Math.min(Math.max(r.top + r.height / 2, 0), innerHeight - 1)
+    );
+    return !!el && (el === button || button.contains(el) || el.contains(button));
   }
 
-  /** Place le badge sur le coin haut-gauche du bouton ; le masque si le bouton n'est pas réellement visible. */
-  function position(button, badge) {
+  function position(button, s) {
     const r = button.getBoundingClientRect();
-    const inView = r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
-    let visible = inView;
-    if (inView) {
-      // masqué si recouvert (header collant) ou rogné par un conteneur scrollable
-      const el = document.elementFromPoint(
-        Math.min(Math.max(r.left + r.width / 2, 0), innerWidth - 1),
-        Math.min(Math.max(r.top + r.height / 2, 0), innerHeight - 1)
-      );
-      visible = !!el && (el === button || button.contains(el) || el.contains(button));
-    }
-    badge.style.visibility = visible ? 'visible' : 'hidden';
-    badge.style.top = `${Math.round(r.top - 9)}px`;
-    badge.style.left = `${Math.round(r.left + 6)}px`;
+    const vis = isReallyVisible(button, r) ? 'visible' : 'hidden';
+    s.chip.style.visibility = s.bar.style.visibility = vis;
+    s.chip.style.left = `${Math.round(r.left + 8)}px`;
+    s.chip.style.top = `${Math.round(r.top - 12)}px`;
+    s.bar.style.left = `${Math.round(r.left + 6)}px`;
+    s.bar.style.top = `${Math.round(r.bottom + 8)}px`;
+    s.bar.style.width = `${Math.max(0, Math.round(r.width - 12))}px`;
   }
 
   function decorate(rec, isBest) {
     const button = rec.element;
     button.classList.add(CLS.rec);
     if (isBest) button.classList.add(CLS.best);
-    const badge = makeBadge(rec, isBest);
-    getOverlay().appendChild(badge);
-    position(button, badge);
-    active.set(button, { badge, isBest });
+    const parts = buildParts(rec, isBest);
+    const layer = UI.getLayer();
+    layer.append(parts.chip, parts.bar);
+    const s = { ...parts, rec, isBest };
+    active.set(button, s);
+    position(button, s);
     log('Highlighting DOM element');
   }
 
   function clear() {
+    hideTip();
     for (const [button, s] of active) {
-      button.classList.remove(CLS.rec, CLS.best);
-      s.badge.remove();
+      button.classList.remove(CLS.rec, CLS.best, CLS.pulse);
+      s.chip.remove();
+      s.bar.remove();
     }
     active.clear();
-    if (overlay) overlay.querySelectorAll(`.${CLS.badge}`).forEach((n) => n.remove());
   }
 
   /** Vrai si le DOM affiche déjà exactement ces recommandations (évite re-render + mutations inutiles). */
@@ -89,7 +72,7 @@
     if (active.size !== recs.length) return false;
     return recs.every((r) => {
       const s = active.get(r.element);
-      return s && s.badge.isConnected && r.element.isConnected && s.isBest === (r === best);
+      return s && s.chip.isConnected && r.element.isConnected && s.isBest === (r === best) && s.rec.jevScore === r.jevScore;
     });
   }
 
@@ -100,23 +83,91 @@
 
   function reposition() {
     for (const [button, s] of active) {
-      if (button.isConnected) position(button, s.badge);
-      else s.badge.style.visibility = 'hidden';
+      if (button.isConnected) position(button, s);
+      else s.chip.style.visibility = s.bar.style.visibility = 'hidden';
     }
+    hideTip();
   }
 
-  // suivi du scroll (y compris conteneurs internes, en capture) et du redimensionnement
+  /** '' | 'loading' | 'stale' | 'error' : piloté par CSS sur le calque. */
+  function setState(state) {
+    UI.getLayer().dataset.state = state || '';
+  }
+
+  // ---------------------------------------------------------------- carte de survol
+
+  function hideTip() {
+    if (tip) tip.remove();
+    tip = null;
+  }
+
+  function showTip(button, s) {
+    hideTip();
+    const rec = s.rec;
+    const t = UI.el('div', 'tip');
+    const h = UI.el('div', 'tip__h');
+    h.append(UI.el('span', null, 'Préférence JEV'));
+    if (typeof rec.confidence === 'number') h.append(UI.el('span', 'mono', `conf. ${formatPct(rec.confidence)}`));
+    t.appendChild(h);
+    const dist = (rec.distribution || []).slice().sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    for (const d of dist) {
+      const row = UI.el('div', `tip__row${d.name === rec.choice ? ' tip__row--top' : ' tip__row--lo'}`);
+      const b = document.createElement('b');
+      b.append(UI.el('span', null, d.name), UI.el('span', 'mono', pctNum(d.score)));
+      const track = UI.el('div', 'tip__track');
+      const fill = document.createElement('i');
+      fill.style.width = `${Math.max(0, Math.min(100, pctNum(d.score) || 0))}%`;
+      track.appendChild(fill);
+      row.append(b, track);
+      t.appendChild(row);
+    }
+    t.appendChild(UI.el('div', 'tip__f', 'Poids donné par le modèle, pas une probabilité réelle de gain.'));
+    UI.getLayer().appendChild(t);
+
+    const r = button.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - 122), innerWidth - 252);
+    let top = r.top - t.offsetHeight - 14;
+    if (top < 8) top = r.bottom + 22;
+    t.style.left = `${Math.round(left)}px`;
+    t.style.top = `${Math.round(top)}px`;
+    tip = t;
+  }
+
+  function findActive(node) {
+    if (!(node instanceof Element)) return null;
+    for (const [button, s] of active) if (button === node || button.contains(node)) return { button, s };
+    return null;
+  }
+  document.addEventListener('mouseover', (e) => {
+    const hit = findActive(e.target);
+    if (hit) showTip(hit.button, hit.s);
+  }, true);
+  document.addEventListener('mouseout', (e) => {
+    if (!findActive(e.relatedTarget)) hideTip();
+  }, true);
+  addEventListener('scroll', hideTip, true);
+
+  // ---------------------------------------------------------------- suivi scroll/resize + navigation vers un pick
+
   let raf = 0;
   const schedule = () => {
     if (raf || !active.size) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
-      reposition();
+      for (const [button, s] of active) if (button.isConnected) position(button, s);
     });
   };
   addEventListener('scroll', schedule, true);
   addEventListener('resize', schedule);
 
-  const api = { Highlighter: { apply, clear, isUpToDate, reposition, getOverlay, CLS } };
-  Object.assign(root.JEV, api);
+  /** Fait défiler jusqu'à la cote recommandée et la fait pulser. Ne clique JAMAIS dessus. */
+  function scrollTo(rec) {
+    const button = rec && rec.element;
+    if (!button || !button.isConnected) return;
+    button.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    button.classList.add(CLS.pulse);
+    setTimeout(() => button.classList.remove(CLS.pulse), 1600);
+  }
+
+  Object.assign(J, { Highlighter: { apply, clear, isUpToDate, reposition, setState, scrollTo, CLS } });
 })(globalThis);

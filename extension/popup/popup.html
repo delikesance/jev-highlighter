@@ -3,65 +3,65 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>JEV Highlighter</title>
+  <title>JEV Lens</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
   <header>
-    <h1>JEV Highlighter</h1>
+    <h1><span class="star">★</span> JEV Lens</h1>
     <span id="conn" class="pill">…</span>
   </header>
 
-  <section id="keyBox">
-    <label class="keylabel">Votre clef
-      <input id="apiKey" type="text" autocomplete="off" spellcheck="false" placeholder="apikey_…" />
-    </label>
-    <button id="saveKey" class="secondary">Enregistrer la clef</button>
-  </section>
-
-  <button id="analyze" class="primary">Analyser la page</button>
+  <button id="analyze" class="btn primary">Analyser la page</button>
   <p id="msg" class="msg" hidden></p>
 
-  <section class="grid">
-    <div><span class="k">Marchés détectés</span><b id="markets">—</b></div>
-    <div><span class="k">Sélections</span><b id="selections">—</b></div>
-    <div><span class="k">Analysés par JEV</span><b id="analysed">—</b></div>
+  <section class="stats">
+    <div><span class="lab">Marchés</span><b id="markets" class="mono">—</b></div>
+    <div><span class="lab">Sélections</span><b id="selections" class="mono">—</b></div>
+    <div><span class="lab">Analysés</span><b id="analysed" class="mono ok">—</b></div>
   </section>
 
-  <section id="best" class="card" hidden>
-    <div class="k">Meilleur choix JEV</div>
+  <section id="best" class="top" hidden>
+    <span class="pill amber">★ TOP PICK</span>
     <div id="bestChoice" class="choice"></div>
     <div id="bestMarket" class="sub"></div>
-    <div class="grid3">
-      <div><span class="k">Score JEV</span><b id="bestScore"></b></div>
-      <div><span class="k">Confidence</span><b id="bestConf"></b></div>
-      <div><span class="k">Cote affichée</span><b id="bestOdds"></b></div>
+    <div class="stats tight">
+      <div><span class="lab">Score</span><b id="bestScore" class="mono amber"></b></div>
+      <div><span class="lab">Confidence</span><b id="bestConf" class="mono"></b></div>
+      <div><span class="lab">Cote</span><b id="bestOdds" class="mono"></b></div>
     </div>
-    <p class="note">Le score JEV est une préférence du modèle, pas une probabilité réelle de gain.</p>
+    <p class="note">Préférence du modèle, pas une probabilité réelle.</p>
   </section>
 
-  <button id="clear" class="secondary">Effacer les highlights</button>
+  <section class="toggles">
+    <label class="row"><span>Analyse automatique</span><input type="checkbox" id="auto" class="switch" /></label>
+    <label class="row"><span>Suggestion de mise</span><input type="checkbox" id="stake" class="switch" /></label>
+    <label class="row"><span>Remonter les picks en tête</span><input type="checkbox" id="reorder" class="switch" /></label>
+  </section>
 
-  <label class="row"><span>Analyse automatique</span><input type="checkbox" id="auto" /></label>
-  <label class="row"><span>Suggestion de mise (selon le solde)</span><input type="checkbox" id="stake" /></label>
-  <label class="row"><span>Mode debug (logs [JEV])</span><input type="checkbox" id="debug" /></label>
+  <button id="clear" class="btn ghost">Effacer les highlights</button>
 
-  <details>
-    <summary>Configuration</summary>
-    <label>Mode
+  <details id="settings">
+    <summary>Réglages</summary>
+    <label class="field">Votre clef
+      <input id="apiKey" type="text" autocomplete="off" spellcheck="false" placeholder="apikey_…" />
+    </label>
+    <label class="row"><span>Afficher le dock</span><input type="checkbox" id="dock" class="switch" /></label>
+    <label class="row"><span>Mode debug (logs [JEV])</span><input type="checkbox" id="debug" class="switch" /></label>
+    <label class="field">Mode
       <select id="mode">
         <option value="dev">Développement (clé locale)</option>
         <option value="backend">Production (mon backend)</option>
       </select>
     </label>
     <div id="devFields">
-      <label>Endpoint (vide = défaut) <input id="endpoint" type="url" placeholder="https://api.typesafe.ai/v1/systemone" /></label>
+      <label class="field">Endpoint (vide = défaut) <input id="endpoint" type="url" placeholder="https://api.typesafe.ai/v1/systemone" /></label>
       <p class="note warn">La clé est lisible par quiconque possède l'extension. Test local uniquement.</p>
     </div>
     <div id="backendFields" hidden>
-      <label>URL du backend <input id="backendUrl" type="url" placeholder="https://mon-backend.example/jev" /></label>
+      <label class="field">URL du backend <input id="backendUrl" type="url" placeholder="https://mon-backend.example/jev" /></label>
     </div>
-    <button id="save" class="secondary">Enregistrer</button>
+    <button id="save" class="btn ghost">Enregistrer</button>
   </details>
 
   <script src="popup.js"></script>

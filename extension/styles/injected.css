@@ -1,81 +1,38 @@
+/* CSS de PAGE (le reste de l'UI vit dans des Shadow DOM : styles/lens.css) */
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('chrome-extension://__MSG_@@extension_id__/fonts/Sora.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('chrome-extension://__MSG_@@extension_id__/fonts/JetBrainsMono.woff2') format('woff2');
+}
+
+/* Anneau sur le bouton du site (le contenu du bouton n'est jamais modifié) */
 .jev-recommended-bet {
-  outline: 2px solid #22c55e !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 10px 2px rgba(34, 197, 94, 0.45) !important;
-  border-radius: 6px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #087f57, 0 0 18px 4px rgba(8, 127, 87, 0.3) !important;
+  border-radius: 10px;
 }
-
 .jev-recommended-bet.jev-best-bet {
-  outline: 3px solid #facc15 !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 16px 4px rgba(250, 204, 21, 0.65) !important;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #a85f00, 0 0 24px 6px rgba(168, 95, 0, 0.35) !important;
 }
-
-.jev-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  pointer-events: none;
-  overflow: visible;
+.jev-recommended-bet.jev-pulse {
+  animation: jev-pulse 0.7s ease-in-out 2;
 }
-
-.jev-badge {
-  position: absolute;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 1px 7px;
-  font: 600 10px/16px system-ui, -apple-system, 'Segoe UI', sans-serif;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  color: #052e16;
-  background: #4ade80;
-  border-radius: 999px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
-  user-select: none;
+@keyframes jev-pulse {
+  50% { box-shadow: 0 0 0 2px #fff, 0 0 0 6px #087f57, 0 0 34px 12px rgba(8, 127, 87, 0.45) !important; }
 }
-
-.jev-badge--top {
-  color: #422006;
-  background: #facc15;
+@media (prefers-reduced-motion: no-preference) {
+  .jev-recommended-bet.jev-best-bet:not(.jev-pulse) {
+    animation: jev-halo 2.4s ease-in-out infinite;
+  }
+  @keyframes jev-halo {
+    50% { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #a85f00, 0 0 32px 10px rgba(168, 95, 0, 0.2) !important; }
+  }
 }
-
-.jev-badge__score {
-  padding-left: 5px;
-  border-left: 1px solid rgba(0, 0, 0, 0.25);
-}
-
-.jev-badge__conf {
-  font-weight: 500;
-  opacity: 0.75;
-}
-
-.jev-stake {
-  position: absolute;
-  max-width: 340px;
-  padding: 8px 10px;
-  font: 12px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
-  color: #e2e8f0;
-  background: #0f172a;
-  border: 1px solid #facc15;
-  border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-}
-.jev-stake__title { font-weight: 700; color: #facc15; }
-.jev-stake__title--err { color: #f87171; }
-.jev-stake__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
-.jev-stake__amount { font-size: 20px; font-weight: 800; }
-.jev-stake__copy {
-  pointer-events: auto;
-  padding: 3px 10px;
-  font: 600 11px system-ui, sans-serif;
-  color: #052e16;
-  background: #4ade80;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.jev-stake__sub { color: #cbd5e1; }
-.jev-stake__note { margin-top: 3px; font-size: 10px; color: #94a3b8; }

@@ -1,6 +1,6 @@
 // Tout le contenu dynamique est écrit via textContent (jamais innerHTML).
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { mode: 'dev', apiKey: '', endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, debug: false };
+const DEFAULTS = { mode: 'dev', apiKey: '', endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false };
 const pct = (x) => (typeof x === 'number' ? `${Math.round(x * 100)}%` : '—');
 
 const STATUS_TEXT = {
@@ -47,7 +47,7 @@ function render(s) {
   if (best) {
     $('bestChoice').textContent = best.choice;
     $('bestMarket').textContent = best.marketTitle;
-    $('bestScore').textContent = pct(best.jevScore);
+    $('bestScore').textContent = typeof best.jevScore === 'number' ? Math.round(best.jevScore * 100) : '—';
     $('bestConf').textContent = pct(best.confidence);
     $('bestOdds').textContent = best.oddsText || '—';
   }
@@ -61,19 +61,21 @@ async function loadSettings() {
   $('backendUrl').value = s.backendUrl;
   $('auto').checked = s.autoAnalyze;
   $('stake').checked = s.stakeAdvice;
+  $('reorder').checked = s.reorderPicks;
+  $('dock').checked = s.dockOpen;
   $('debug').checked = s.debug;
   toggleMode();
   const configured = s.mode === 'backend' ? !!s.backendUrl.trim() : !!s.apiKey.trim();
   $('conn').textContent = configured ? 'configuré' : 'non configuré';
   $('conn').className = `pill ${configured ? 'ok' : 'ko'}`;
   $('analyze').disabled = !configured;
+  $('settings').open = !configured; // la clé est dans « Réglages » : on l'ouvre tant qu'elle manque
   if (!configured) setMsg('Renseignez la clé (dev) ou l’URL du backend dans « Configuration ».', true);
 }
 
 function toggleMode() {
   const backend = $('mode').value === 'backend';
   $('devFields').hidden = backend;
-  $('keyBox').hidden = backend;
   $('backendFields').hidden = !backend;
 }
 
@@ -90,14 +92,10 @@ $('save').addEventListener('click', async () => {
   await loadSettings();
 });
 
-$('saveKey').addEventListener('click', async () => {
-  await chrome.storage.local.set({ apiKey: $('apiKey').value.trim() });
-  await loadSettings();
-  setMsg('Clef enregistrée.');
-});
-
 $('auto').addEventListener('change', (e) => chrome.storage.local.set({ autoAnalyze: e.target.checked }));
 $('stake').addEventListener('change', (e) => chrome.storage.local.set({ stakeAdvice: e.target.checked }));
+$('reorder').addEventListener('change', (e) => chrome.storage.local.set({ reorderPicks: e.target.checked }));
+$('dock').addEventListener('change', (e) => chrome.storage.local.set({ dockOpen: e.target.checked, dockCollapsed: false }));
 $('debug').addEventListener('change', (e) => chrome.storage.local.set({ debug: e.target.checked }));
 
 $('analyze').addEventListener('click', async () => {
