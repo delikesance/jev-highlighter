@@ -225,7 +225,12 @@
         return 'CHOIX';
       },
       async CHOIX(st) {
-        const event = selector.pickEvent(st.events || [], new Set(st.tried || []), quickCountFor);
+        const candidates = (st.events || []).filter((e) => ['football', 'basketball'].includes(e.sport) && e.clock && e.clock.running && safeUrl(e.href));
+        const event = typeof deps.chooseEvent === 'function'
+          ? (candidates.length ? await deps.chooseEvent(candidates) : null)
+          : selector.pickEvent(st.events || [], new Set(st.tried || []), quickCountFor);
+        if (await store.stopFlag()) return 'STOPPED';
+        if (deps.chooseEvent && event && !candidates.some((e) => e.href === event.href)) { await stop('JEV : live absent de la liste'); return 'STOPPED'; }
         if (!event) {
           const summary = st.scanSummary;
           const message = summary
@@ -243,22 +248,28 @@
       },
       async ANALYSE(st) {
         const event = st.event;
-        let markets = selector.quickMarkets(readMarkets(), event.sport, cfg);
+        const readEligible = () => deps.chooseEvent ? readMarkets() : selector.quickMarkets(readMarkets(), event.sport, cfg);
+        let markets = readEligible();
         // Une navigation peut reprendre avant que les composants Angular aient rendu les marchés.
         const waitMs = Number.isFinite(cfg.slipWaitMs) ? cfg.slipWaitMs : 3000;
         const pollMs = Number.isFinite(cfg.pollMs) ? cfg.pollMs : 250;
         for (let waited = 0; !markets.length && waited < waitMs; waited += pollMs) {
           if (await store.stopFlag()) return 'STOPPED';
           await sleep(pollMs);
-          markets = selector.quickMarkets(readMarkets(), event.sport, cfg);
+          markets = readEligible();
         }
         if (await store.stopFlag()) return 'STOPPED';
         const matches = markets.length ? await deps.analyze(markets, { event }) : [];
+        if (await store.stopFlag()) return 'STOPPED';
         const ranked = [...matches].sort((a, b) => {
           const score = (m) => Number.isFinite(m.jevScore) ? m.jevScore : Number.isFinite(m.confidence) ? m.confidence : -1;
           return score(b) - score(a);
         });
-        const picks = selector.pickSelections(ranked, markets, cfg, event.sport);
+        const picks = deps.chooseEvent ? ranked.flatMap((match) => {
+          const market = markets.find((m) => m.id === match.marketId);
+          const option = market && market.options.find((o) => o.available && o.name === match.choice && Number.isFinite(o.odds));
+          return option ? [{ marketId: market.id, label: option.name, odds: option.odds, confidence: match.confidence, window: market.window || null }] : [];
+        }) : selector.pickSelections(ranked, markets, cfg, event.sport);
         const p = picks.find((pick) => {
           const market = markets.find((m) => m.id === pick.marketId);
           return market && !(st.playedKeys || []).includes(playKey(event, { ...pick, marketTitle: market.title }));
@@ -272,7 +283,7 @@
         if (await endRules(st)) return 'STOPPED';
         const key = playKey(st.event, st.pick);
         if ((st.playedKeys || []).includes(key)) { log('déjà joué dans la session', key); return giveUp(st, st.event.href); }
-        const stake = guard.maxStake(await deps.stakeFor({ event: st.event, pick: st.pick }));
+        const stake = deps.ticketSizing ? guard.maxStake(Number.MAX_SAFE_INTEGER) : guard.maxStake(await deps.stakeFor({ event: st.event, pick: st.pick }));
         if (!(stake > 0)) return giveUp(st, st.event.href);
         // Avant tout appel à l'exécuteur : événement tried et clé jouée persistés, lastPlaced remis à zéro.
         // execId : identifiant d'exécution persistant (compteur), recopié par l'exécuteur dans pending et lastPlaced.

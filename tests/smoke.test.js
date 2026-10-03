@@ -335,16 +335,26 @@ test('smoke Auto : marchés rapides dupliqués entre sections -> un seul envoyé
   assert.equal(seen[0].filter((t) => t.startsWith('Nombre total')).length, 1);
 });
 
-test('smoke Auto : adaptateur analyze -> JEV_EVALUATE + matches ; parseMarkets -> liste', async () => {
+test('smoke Auto : décisions live, pari et mise du ticket via JEV ; analyse manuelle intacte', async () => {
   let opts;
   const { sent, doc } = boot(fixture(), { autoMode: true, __before: (w) => { spyRuntime(w, (o) => { opts = o; }); } });
   await wait(60);
   const list = opts.parseMarkets(doc);
   assert.ok(Array.isArray(list) && list.length >= 5);
+  const events = [{ href: '/match/1', name: 'A - B', sport: 'football', clock: { running: true } }];
+  const live = await opts.chooseEvent(events);
+  assert.equal(live.href, events[0].href);
   const matches = await opts.analyze(list.slice(0, 2), { event: { href: '/match/1' } });
-  assert.equal(sent.filter((m) => m.type === 'JEV_EVALUATE').length, 1);
-  assert.equal(matches.length, 2);
+  assert.equal(sent.filter((m) => m.type === 'JEV_EVALUATE').length, 2);
+  assert.equal(matches.length, 1);
+  assert.equal(sent.find((m) => m.type === 'JEV_EVALUATE').body.model, 'jev-latest');
   assert.ok(matches.every((m) => typeof m.marketId === 'string' && typeof m.choice === 'string'));
+  const amount = await opts.stakeFromTicket({ slip: { event: 'A - B', market: 'Vainqueur', selection: 'A', odds: 2.35 }, wallet: 14.47, decision: { confidence: 0.8 } });
+  assert.ok(amount > 0 && amount < 14.47);
+  const requests = sent.filter((m) => m.type === 'JEV_EVALUATE').map((m) => m.body);
+  assert.equal(requests[0].state.task, 'auto_choose_live');
+  assert.equal(requests[1].state.task, 'auto_choose_bet');
+  assert.ok(requests.slice(2).every((b) => b.state.task === 'stake_sizing' && b.state.wallet_eur === 14.47 && b.state.total_odds === 2.35));
   // l'analyse manuelle n'est pas touchée : aucun surlignage
   assert.equal(doc.querySelectorAll('.jev-recommended-bet').length, 0);
 });

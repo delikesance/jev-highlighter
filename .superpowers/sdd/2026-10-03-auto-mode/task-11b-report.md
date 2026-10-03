@@ -52,3 +52,35 @@ $ node --test tests/*.test.js && git diff --check && git status --short
 
 - Les sélecteurs, temps de rendu Angular, navigation SPA et réponses de Betclic restent validés uniquement par les fixtures jsdom et les faits consignés dans la spec; aucun accès au vrai site n’est disponible ici.
 - Il faut une validation manuelle sur un compte de test, d’abord strictement en mode à blanc, avant toute activation réelle.
+
+## Refonte du cycle demandée le 2026-10-04
+
+Status : DONE_WITH_CONCERNS (site réel et API distante non exécutés).
+
+### Réalisé
+
+- Sur `/live`, une question dédiée JEV choisit un événement parmi les candidats transmis. Une réponse ne peut pas injecter une URL : seuls les identifiants de la liste sont acceptés.
+- Sur la page du live choisi, une deuxième question choisit une seule sélection parmi tous les marchés parsés, dédupliqués et non suspendus. Le filtre Fast et le classement déterministe ne décident plus dans le runtime de production.
+- L'exécuteur ajoute la sélection au ticket, vérifie son identité, lit le wallet stable et demande la mise via `suggestStake` avec les vraies cotes du ticket. La mise n'est plus demandée avant son ouverture. Le transport inclut le modèle configuré.
+- « Ne pas miser » retire la sélection sans validation. STOP pendant la requête de mise empêche toute saisie/validation et nettoie la sélection.
+- Après simulation ou placement suivi, PAUSE puis retour `/live`. Aucun armement automatique ; à blanc reste le défaut. Reprise de session, suivi des paris réels, garde-fous financiers et anti-doublons conservés.
+
+### Tests et preuves
+
+- RED initial : les nouveaux tests de décisions/exécution précédaient les implémentations (`auto-decisions` absent, callback de mise du ticket non appelé). Les tests du contrôleur exigeaient le choix JEV du live et un marché non Fast.
+- Vérification supplémentaire : `node --test tests/auto-flow.test.js` a d'abord échoué. `node tests/auto-flow.test.js` révélait une erreur du test : `Config auto invalide : pauseMs : 500 < minimum 1000`. Corrigé à 1000 et parsing `.list`, sans réduire la validation de configuration.
+- GREEN : `node tests/auto-flow.test.js` → `tests 1`, `pass 1`, `fail 0`. Intégration du contrôleur, décisions, parser, garde, lecteurs et exécuteur : ordre live → pari → ticket → mise ; une sélection ajoutée, aucun clic Parier à blanc, ticket vide, retour `/live`.
+- GREEN final : `node --test tests/*.test.js` → `tests 20`, `pass 20`, `fail 0` (le lanceur rapporte ici les 20 fichiers, pas le nombre de cas internes), durée 8488 ms.
+- `git diff --check` → sortie vide. Tests statiques et analyse manuelle verts. Le smoke Auto attend désormais une sélection globale, et vérifie les trois adaptateurs et les données wallet/cote des requêtes de mise ; les attentes de l'analyse manuelle restent inchangées.
+
+### Fichiers / auto-revue
+
+`extension/src/auto/decisions.js` (nouveau), `controller.js`, `executor.js`, `wiring.js`, `extension/src/content.js`, `extension/manifest.json`, `tests/auto-decisions.test.js` (nouveau), `tests/auto-flow.test.js` (nouveau), `tests/auto-controller.test.js`, `tests/auto-executor.test.js`, `tests/smoke.test.js` et ce rapport.
+
+`content.js` : 501 lignes. Le nouveau module ne clique pas, ne transporte aucune référence DOM dans la requête et valide les identifiants renvoyés. Les STOP sont revérifiés après les réponses asynchrones. L'ancien chemin injecté du contrôleur reste disponible pour compatibilité/tests ; le runtime content utilise le nouveau chemin.
+
+### Concerns
+
+- Validation uniquement jsdom/faux JEV : pas de preuve de rendu Angular, réponses API, suivi ou placement sur le vrai compte. Une sélection répétée dans plusieurs emplacements DOM peut toujours être refusée comme ambiguë par l'exécuteur.
+- Sports actuellement pris en charge : football/basketball avec horloge active. Le choix JEV ne supprime pas les limites existantes : cote, confiance, délai minimal, exposition et fin de session (5 paris maximum). La mise JEV reste plafonnée par les limites financières existantes ; la boucle n'est pas illimitée.
+- Aucun modèle ne garantit un bon pari ni un gain. Aucune mise réelle effectuée dans cette validation. Pas de push, tag ou release dans cette intervention.

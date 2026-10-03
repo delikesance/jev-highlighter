@@ -29,6 +29,7 @@ function setup(siteOpts = {}, { stopWhen, onSet } = {}) {
   const logs = [];
   const ex = createExecutor({
     doc: site.doc, readers: Readers, guard, store, cfg: CFG,
+    stakeFromTicket: siteOpts.stakeFromTicket,
     sleep: async (ms) => { t += ms; site.advance(ms); }, now: () => t, log: (...a) => logs.push(a),
   });
   return { site, guard, store, state, writes, ex, logs };
@@ -65,11 +66,45 @@ test('dry-run : #betBtn jamais cliqué, ticket revenu vide', async () => {
   assert.strictEqual(s.site.slipCount(), 0);
   assert.strictEqual(s.guard.state.reserved, 0);
 });
+test('nouveau flow : la mise JEV est demandée après ouverture du ticket, avant saisie', async () => {
+  let called = 0;
+  const s = setup({ stakeFromTicket: async ({ slip, wallet }) => {
+    called++;
+    assert.strictEqual(s.site.slipCount(), 1);
+    assert.strictEqual(slip.odds, 2.1);
+    assert.strictEqual(wallet, 6.53);
+    assert.strictEqual(slip.stake, null);
+    return 0.4;
+  } });
+  const r = await s.ex.place({ ...DEC, dryRun: true });
+  assert.strictEqual(called, 1);
+  assert.strictEqual(r.status, 'dry', r.reason);
+  assert.strictEqual(r.stake, 0.4);
+});
 test('dry-run : attend le retrait Angular asynchrone et ne clique la croix qu’une fois', async () => {
   const s = setup({ asyncRemoveDelayMs: 1000 });
   const r = await s.ex.place({ ...DEC, dryRun: true });
   assert.strictEqual(r.status, 'dry', r.reason);
   assert.strictEqual(s.site.spy.iconClose, 1);
+  assert.strictEqual(s.site.spy.betBtn, 0);
+  assert.strictEqual(s.site.slipCount(), 0);
+});
+
+test('mise JEV : ne pas miser retire la sélection sans valider', async () => {
+  const s = setup({ stakeFromTicket: async () => null });
+  const r = await s.ex.place(DEC);
+  assert.strictEqual(r.status, 'refused', r.reason);
+  assert.strictEqual(s.site.slipCount(), 0);
+  assert.strictEqual(s.site.spy.betBtn, 0);
+});
+
+test('STOP pendant la requête de mise : aucune saisie ni validation', async () => {
+  const s = setup({ stakeFromTicket: async () => {
+    await s.store.set({ stopped: true });
+    return 0.4;
+  } });
+  const r = await s.ex.place(DEC);
+  assert.strictEqual(r.status, 'halt', r.reason);
   assert.strictEqual(s.site.spy.betBtn, 0);
   assert.strictEqual(s.site.slipCount(), 0);
 });
