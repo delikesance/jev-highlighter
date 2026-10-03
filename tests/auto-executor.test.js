@@ -331,3 +331,28 @@ test('M6 : texte du ticket tronqué à 500 caractères dans le journal de halt',
   const h = s.logs.find((l) => l[0] === 'halt');
   assert.ok(h[1].slip.length <= 500);
 });
+
+// Round 2 : tout patch qui touche pending porte l'instantané du guard, cohérent avec guard.snapshot().
+for (const [name, siteOpts, opts] of [['succès', {}, {}], ['halt après pending (cote modifiée)', {}, { odds: 2.5 }], ['noModal', { noModal: true }, {}]]) {
+  test('atomicité pending/guardSnap : ' + name, async () => {
+    let g = null; const seen = [];
+    const s = setup(siteOpts, { onSet: async (p, site) => {
+      // les assertions dans onSet seraient avalées par le try de l'exécuteur : on enregistre, on vérifie après
+      if ('pending' in p) seen.push({ p, snap: { ...g.snapshot() } });
+      if (p.pending && opts.odds) site.setOdds(opts.odds);
+    } });
+    g = s.guard;
+    await s.ex.place(DEC);
+    assert.ok(seen.length >= 1);
+    for (const { p, snap } of seen) assert.deepStrictEqual(p.guardSnap ? { ...p.guardSnap } : null, snap, 'guardSnap absent ou incohérent');
+    if (name !== 'noModal') assert.strictEqual(seen.at(-1).p.pending, null);
+    if (name === 'succès') {
+      const last = seen.at(-1).p;
+      assert.strictEqual(last.pending, null);
+      assert.strictEqual(last.guardSnap.placed, 1);
+      assert.ok(last.lastPlaced);
+      assert.strictEqual(seen[0].p.pending.reservedInSnap, true);
+      assert.strictEqual(seen[0].p.guardSnap.reserved, 0.5);
+    }
+  });
+}

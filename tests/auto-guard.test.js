@@ -246,3 +246,8 @@ test('maxCycles borné', () => {
   assert.equal(Guard.validateConfig({ ...base(), maxCycles: 0 }).ok, false);
   assert.equal(Guard.validateConfig({ ...base(), maxCycles: 201 }).ok, false);
 });
+
+test('restauration placed > maxBets → check refuse', () => {
+  const g = Guard.create(base(), 100, { placed: 7, reserved: 0, inFlight: 0, consecutiveLosses: 0 });
+  assert.equal(g.check(good()).verdict, 'NON');
+});

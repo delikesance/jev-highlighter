@@ -166,6 +166,20 @@
       return dedupe(list).filter((m) => m && m.suspended !== true);
     }
 
+    const playKey = (e, p) => [e.href, p.marketTitle, p.window == null ? '' : p.window, p.label].join('|');
+
+    // Reprise d'un pari confirmé (lastPlaced) dont la suite n'a pas été écrite : on l'adopte au lieu de rejouer.
+    async function adoptLastPlaced(st) {
+      const lp = st.lastPlaced;
+      log('reprise : pari déjà placé adopté', lp);
+      if (Array.isArray(st.before)) { await set({ phase: 'ATTENTE', placedStake: lp.stake }); return 'ATTENTE'; }
+      const prevBalance = await readers.readWalletStable(doc, sleep);
+      if (typeof prevBalance !== 'number') { await stop('pari repris sans référence et solde illisible : vérifier Mes paris + solde'); return 'STOPPED'; }
+      const bet = { ref: null, method: 'balance', stake: lp.stake, status: 'pending', event: lp.event, prevBalance };
+      await set({ phase: 'PAUSE', bets: [...(st.bets || []), bet], before: null, pick: null, event: null });
+      return 'PAUSE';
+    }
+
     async function giveUp(st, href) {
       await markTried(st, href);
       await set({ phase: 'SCAN', event: null, pick: null });
@@ -206,15 +220,24 @@
       },
       async GARDE(st) {
         if (await endRules(st)) return 'STOPPED';
+        const key = playKey(st.event, st.pick);
+        if ((st.playedKeys || []).includes(key)) { log('déjà joué dans la session', key); return giveUp(st, st.event.href); }
         const stake = guard.maxStake(await deps.stakeFor({ event: st.event, pick: st.pick }));
         if (!(stake > 0)) return giveUp(st, st.event.href);
-        await set({ phase: 'EXEC', stake });
+        // Avant tout appel à l'exécuteur : événement tried et clé jouée persistés, lastPlaced remis à zéro.
+        const tried = st.tried || [];
+        await set({ phase: 'EXEC', stake, execStartedAt: deps.now(), lastPlaced: null, before: null,
+          tried: tried.includes(st.event.href) ? tried : [...tried, st.event.href], playedKeys: [...(st.playedKeys || []), key] });
         return 'EXEC';
       },
       async EXEC(st) {
+        if (st.pending) { await stop('pari incertain en cours : vérifier Mes paris + solde'); return 'STOPPED'; }
+        // Le pari de CETTE exécution a déjà été placé (rechargement après l'écriture de lastPlaced) : jamais de rejeu.
+        if (st.lastPlaced && Number.isFinite(st.execStartedAt) && st.lastPlaced.at >= st.execStartedAt) return adoptLastPlaced(st);
         const pk = st.pick;
         const before = st.dryRun ? null : await tracker.snapshotOngoing();
         if (!st.dryRun && !Array.isArray(before)) { await stop('suivi des paris indisponible'); return 'STOPPED'; }
+        if (!st.dryRun) await set({ before });
         const decision = { marketTitle: pk.marketTitle, window: pk.window, label: pk.label, event: st.event.name,
           analysedOdds: pk.odds, suggestedStake: st.stake, confidence: pk.confidence, dryRun: st.dryRun };
         let r;
@@ -227,10 +250,9 @@
           if (after.pending && !after.pending.counted) patch.pending = { ...after.pending, reservedInSnap: true };
           await set(patch);
         }
-        const tried = [...(st.tried || []), st.event.href];
-        if (r && r.status === 'placed') { await set({ phase: 'ATTENTE', before, tried, placedStake: r.stake }); return 'ATTENTE'; }
+        if (r && r.status === 'placed') { await set({ phase: 'ATTENTE', placedStake: r.stake }); return 'ATTENTE'; }
         if (!r || r.status === 'halt') { await stop((r && r.reason) || 'arrêt de l\'exécuteur'); return 'STOPPED'; }
-        await set({ phase: 'PAUSE', tried, pick: null, event: null });
+        await set({ phase: 'PAUSE', pick: null, event: null });
         log(r.status === 'dry' ? 'pari à blanc' : 'pari refusé', r.reason);
         return 'PAUSE';
       },
