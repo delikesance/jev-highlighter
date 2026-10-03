@@ -12,6 +12,13 @@
     <span id="conn" class="pill">…</span>
   </header>
 
+  <section id="keyBox">
+    <label class="keylabel">Votre clef
+      <input id="apiKey" type="text" autocomplete="off" spellcheck="false" placeholder="apikey_…" />
+    </label>
+    <button id="saveKey" class="secondary">Enregistrer la clef</button>
+  </section>
+
   <button id="analyze" class="primary">Analyser la page</button>
   <p id="msg" class="msg" hidden></p>
 
@@ -47,7 +54,6 @@
       </select>
     </label>
     <div id="devFields">
-      <label>Clé API JEV <input id="apiKey" type="password" autocomplete="off" placeholder="sk-…" /></label>
       <label>Endpoint (vide = défaut) <input id="endpoint" type="url" placeholder="https://api.typesafe.ai/v1/systemone" /></label>
       <p class="note warn">La clé est lisible par quiconque possède l'extension. Test local uniquement.</p>
     </div>
