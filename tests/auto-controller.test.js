@@ -72,15 +72,15 @@ function setup(o = {}) {
         if (v.verdict !== 'OUI') return { status: 'refused', reason: v.reason };
         if (d.dryRun) return { status: 'dry', stake, odds: d.analysedOdds };
         guard.reserve(stake);
-        await store.set({ pending: { stake, reservedInSnap: true }, guardSnap: guard.snapshot() });
+        await store.set({ pending: { stake, reservedInSnap: true, execId: d.execId }, guardSnap: guard.snapshot() });
         if (o.crashInPlace) throw new Error('rechargement pendant place');
         guard.recordPlaced();
-        await store.set({ pending: null, lastPlaced: { marketTitle: d.marketTitle, window: d.window, label: d.label, event: d.event, stake, at: deps.now() }, guardSnap: guard.snapshot() });
+        await store.set({ pending: null, lastPlaced: { marketTitle: d.marketTitle, window: d.window, label: d.label, event: d.event, stake, at: deps.now(), execId: d.execId }, guardSnap: guard.snapshot() });
         return { status: 'placed', stake, odds: d.analysedOdds };
       })
     }),
     navigate: (h) => { navs.push(h); world.path = new URL(h).pathname; },
-    sleep: async () => {}, now: () => (world.clock = (world.clock || 0) + 1), log: () => {}
+    sleep: async () => {}, now: o.now || (() => (world.clock = (world.clock || 0) + 1)), log: () => {}
   };
   Object.assign(deps, o.deps || {});
   const ctl = Controller.createController(deps);
@@ -451,4 +451,42 @@ test('(d) même (événement, marché, fenêtre, libellé) deux fois → second 
   assert.equal(await t.ctl.step(), 'SCAN');
   assert.equal(t.calls.filter((c) => c === 'place').length, 1);
   assert.equal(t.store.raw().playedKeys.length, 1);
+});
+
+test('horloge qui recule + crash après {pending:null,lastPlaced,guardSnap} → place() une seule fois', async () => {
+  let c = 1000;
+  const now = () => (c -= 7); // chaque lecture renvoie une valeur plus petite (NTP en arrière)
+  const { store, world } = await toCrash((p) => p.pending === null && p.lastPlaced, { now });
+  const lp = store.raw().lastPlaced;
+  assert.equal(lp.execId, store.raw().execId);
+  let total = 1;
+  const t = setup({ store, world, now });
+  await t.ctl.init();
+  for (let i = 0; i < 3; i++) await t.ctl.step();
+  total += t.calls.filter((x) => x === 'place').length;
+  assert.equal(total, 1);
+  assert.equal(store.raw().bets.length, 1);
+  assert.equal(t.guard.state.placed, 1);
+});
+
+test('execId transmis à l\'exécuteur et incrémenté', async () => {
+  const t = await armed();
+  for (let i = 0; i < 6; i++) await t.ctl.step();
+  assert.equal(t.deps.lastDecision.execId, 'exec-1');
+  assert.equal(t.store.raw().execSeq, 1);
+});
+
+test('arm(manualCheckDone) : le pari incertain passe dans bets (unverified), compté par endRules', async () => {
+  const store = fakeStore({ phase: 'EXEC', ownerTabId: 7, session: { startBalance: 100 }, bets: [{ ref: 'a', status: 'won', stake: 5, released: true }, { ref: 'b', status: 'won', stake: 5, released: true }, { ref: 'c', status: 'won', stake: 5, released: true }, { ref: 'd', status: 'won', stake: 5, released: true }],
+    guardSnap: { placed: 0, reserved: 0, inFlight: 0, consecutiveLosses: 0 }, pending: { stake: 5, marketTitle: 'x' } });
+  const t = setup({ store });
+  await t.ctl.init();
+  await t.ctl.arm('PARIER AUTO', { dryRun: false, noManualBets: true, manualCheckDone: true });
+  assert.equal(store.raw().pending, null);
+  assert.equal(store.raw().bets.length, 5);
+  assert.equal(store.raw().bets[4].status, 'unverified');
+  await t.ctl.step();
+  assert.equal(await t.ctl.step(), 'STOPPED');
+  assert.match(store.raw().reason, /limite de session/);
+  assert.ok(!t.calls.includes('place'));
 });

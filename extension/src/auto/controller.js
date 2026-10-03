@@ -86,7 +86,10 @@
         if (isOther(st)) { foreign = true; log('armement refusé : autre onglet'); return; }
         if (secretLeaked()) { await stop('clé secrète présente dans la page'); return; }
         if (st.pending && o.manualCheckDone !== true) { log('armement refusé : vérification manuelle requise'); return; }
-        const patch = { phase: 'ARMED', stopped: false, reason: null, message: null, dryRun: o.dryRun, ownerTabId: tabId,
+        // Le pari incertain reste compté par endRules : il passe dans bets (« unverified ») avant d'effacer pending.
+        const bets = Array.isArray(st.bets) ? st.bets : [];
+        const uncertain = st.pending ? [{ ref: null, status: 'unverified', stake: st.pending.stake, event: st.pending.marketTitle || null, execId: st.pending.execId || null }] : [];
+        const patch = { phase: 'ARMED', bets: [...bets, ...uncertain], stopped: false, reason: null, message: null, dryRun: o.dryRun, ownerTabId: tabId,
           pending: null, event: null, pick: null, before: null };
         let sb = st.session && st.session.startBalance;
         if (sb == null) {
@@ -99,7 +102,6 @@
         if (!guard) buildGuard(sb, st.guardSnap);
         patch.guardSnap = guard.snapshot();
         if (!Array.isArray(st.tried)) patch.tried = [];
-        if (!Array.isArray(st.bets)) patch.bets = [];
         await set(patch);
         lastPhase = 'ARMED';
         log('armé', { dryRun: o.dryRun });
@@ -226,20 +228,26 @@
         if (!(stake > 0)) return giveUp(st, st.event.href);
         // Avant tout appel à l'exécuteur : événement tried et clé jouée persistés, lastPlaced remis à zéro.
         const tried = st.tried || [];
-        await set({ phase: 'EXEC', stake, execStartedAt: deps.now(), lastPlaced: null, before: null,
+        // execId : identifiant d'exécution persistant (compteur), recopié par l'exécuteur dans pending et lastPlaced.
+        const execSeq = (Number.isInteger(st.execSeq) ? st.execSeq : 0) + 1;
+        await set({ phase: 'EXEC', stake, execSeq, execId: `exec-${execSeq}`, lastPlaced: null, before: null,
           tried: tried.includes(st.event.href) ? tried : [...tried, st.event.href], playedKeys: [...(st.playedKeys || []), key] });
         return 'EXEC';
       },
       async EXEC(st) {
         if (st.pending) { await stop('pari incertain en cours : vérifier Mes paris + solde'); return 'STOPPED'; }
-        // Le pari de CETTE exécution a déjà été placé (rechargement après l'écriture de lastPlaced) : jamais de rejeu.
-        if (st.lastPlaced && Number.isFinite(st.execStartedAt) && st.lastPlaced.at >= st.execStartedAt) return adoptLastPlaced(st);
+        // GARDE→EXEC remet lastPlaced à null : tout lastPlaced présent ici est un pari déjà placé, adopté, jamais rejoué.
+        // Aucune comparaison d'horloge (Date.now n'est pas monotone).
+        if (st.lastPlaced) {
+          if (st.lastPlaced.execId !== st.execId) log('reprise : lastPlaced d\'une autre exécution, adopté par sécurité', st.lastPlaced.execId);
+          return adoptLastPlaced(st);
+        }
         const pk = st.pick;
         const before = st.dryRun ? null : await tracker.snapshotOngoing();
         if (!st.dryRun && !Array.isArray(before)) { await stop('suivi des paris indisponible'); return 'STOPPED'; }
         if (!st.dryRun) await set({ before });
         const decision = { marketTitle: pk.marketTitle, window: pk.window, label: pk.label, event: st.event.name,
-          analysedOdds: pk.odds, suggestedStake: st.stake, confidence: pk.confidence, dryRun: st.dryRun };
+          analysedOdds: pk.odds, suggestedStake: st.stake, confidence: pk.confidence, dryRun: st.dryRun, execId: st.execId };
         let r;
         try {
           r = await executor.place(decision);
