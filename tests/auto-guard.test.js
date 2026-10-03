@@ -215,3 +215,34 @@ test('quickMarkets valide', () => {
   }
   const c = base(); c.quickMarkets = { football: ['corner', /x/] }; assert.equal(Guard.validateConfig(c).ok, true);
 });
+
+test('snapshot / restauration des compteurs', () => {
+  const g = Guard.create(base(), 100);
+  g.reserve(5); g.recordPlaced(); g.recordResult('lost'); g.reserve(3);
+  const snap = g.snapshot();
+  assert.deepStrictEqual({ ...snap }, { placed: 1, reserved: 8, inFlight: 1, consecutiveLosses: 1 });
+  assert.ok(Object.isFrozen(snap));
+  const h = Guard.create(base(), 100, snap);
+  assert.deepStrictEqual({ ...h.snapshot() }, { ...snap });
+});
+
+test('snapshot invalide refusé', () => {
+  for (const bad of [{}, { placed: -1, reserved: 0, inFlight: 0, consecutiveLosses: 0 }, { placed: 1.5, reserved: 0, inFlight: 0, consecutiveLosses: 0 },
+    { placed: 0, reserved: NaN, inFlight: 0, consecutiveLosses: 0 }, { placed: 0, reserved: 0, inFlight: '1', consecutiveLosses: 0 }, 'x']) {
+    assert.throws(() => Guard.create(base(), 100, bad));
+  }
+});
+
+test('restauration ne contourne pas les plafonds', () => {
+  const g = Guard.create(base(), 100, { placed: 5, reserved: 0, inFlight: 0, consecutiveLosses: 0 });
+  assert.equal(g.check(good()).verdict, 'NON');
+  const h = Guard.create(base(), 100, { placed: 0, reserved: 0, inFlight: 0, consecutiveLosses: 3 });
+  assert.equal(h.check(good()).verdict, 'ARRET');
+  const k = Guard.create(base(), 100, { placed: 2, reserved: 45, inFlight: 0, consecutiveLosses: 0 });
+  assert.equal(k.check(good({ stake: 10 })).verdict, 'NON');
+});
+
+test('maxCycles borné', () => {
+  assert.equal(Guard.validateConfig({ ...base(), maxCycles: 0 }).ok, false);
+  assert.equal(Guard.validateConfig({ ...base(), maxCycles: 201 }).ok, false);
+});

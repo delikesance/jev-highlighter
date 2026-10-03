@@ -13,45 +13,64 @@
   const LIVE_HREF = '/live';
 
   function createController(deps) {
-    const { store, scanner, selector, executor, guard, tracker, cfg, tabId, settings } = deps;
+    const { store, scanner, selector, readers, tracker, cfg, tabId, settings, doc } = deps;
     const log = typeof deps.log === 'function' ? deps.log : () => {};
     const sleep = deps.sleep;
     const pauseMs = Number.isFinite(cfg && cfg.pauseMs) ? cfg.pauseMs : 5000;
-    // Seule mémoire locale : cet onglet n'est pas le propriétaire de la session (on ne doit pas écrire dans l'état de l'autre).
+    const maxCycles = Number.isInteger(cfg && cfg.maxCycles) ? cfg.maxCycles : 60;
+    const maxBets = Math.min(Number.isInteger(cfg && cfg.maxBets) ? cfg.maxBets : 5, 5);
+    // Mémoire locale (aucune donnée de session) : onglet étranger, verrou de ré-entrance, objets reconstruits depuis le store.
     let foreign = false;
+    let running = false;
+    let lastPhase = 'IDLE';
+    let guard = null;
+    let executor = null;
 
+    const msg = (e) => String((e && e.message) || e);
     const secretLeaked = () => !!settings && typeof settings === 'object' && Object.keys(settings).some((k) => SECRET_RE.test(k));
+    const set = (p) => store.set(p);
+    const isOther = (st) => st.ownerTabId != null && st.ownerTabId !== tabId;
+
+    function buildGuard(startBalance, snap) {
+      guard = deps.makeGuard(startBalance, snap == null ? null : snap);
+      executor = typeof deps.makeExecutor === 'function' ? deps.makeExecutor(guard) : deps.executor;
+    }
+    const saveGuard = () => set({ guardSnap: guard.snapshot() });
 
     async function stop(reason, extra) {
       log('ARRÊT', reason);
+      lastPhase = 'STOPPED';
       if (foreign) return;
       try {
-        await store.set({ ...(extra || {}), phase: 'STOPPED', stopped: true, reason: String(reason) });
-      } catch (e) { log('stop: écriture impossible', String(e)); }
+        await set({ ...(extra || {}), phase: 'STOPPED', stopped: true, reason: String(reason) });
+      } catch (e) { log('stop: écriture impossible', msg(e)); }
     }
 
     async function init() {
+      let st;
       try {
+        st = await store.get();
+        if (isOther(st)) { foreign = true; log('ARRÊT', 'session Auto armée dans un autre onglet'); return (lastPhase = 'STOPPED'); }
         if (secretLeaked()) { await stop('clé secrète présente dans la page'); return 'STOPPED'; }
-        const st = await store.get();
-        if (st.ownerTabId != null && st.ownerTabId !== tabId) {
-          foreign = true;
-          log('ARRÊT', 'session Auto armée dans un autre onglet');
-          return 'STOPPED';
-        }
+        const sb = st.session && st.session.startBalance;
+        if (sb != null) buildGuard(sb, st.guardSnap);
+        else if (st.phase && !['IDLE', 'STOPPED'].includes(st.phase)) { await stop('session sans solde de départ'); return 'STOPPED'; }
         if (st.pending) {
-          const stake = st.pending.stake;
-          guard.reserve(stake);
-          guard.recordPlaced();
+          if (!guard) { await stop('pari incertain sans session'); return 'STOPPED'; }
+          // counted : déjà compté ; reservedInSnap : l'instantané contient la réserve mais pas le +1.
+          if (!st.pending.counted) {
+            if (!st.pending.reservedInSnap) guard.reserve(st.pending.stake);
+            guard.recordPlaced();
+          }
           const message = 'Pari incertain (« validation en cours ») : vérifier Mes paris + solde avant de réarmer';
           log(message, st.pending);
-          await stop('pari incertain à la reprise', { message });
+          await stop('pari incertain à la reprise', { message, guardSnap: guard.snapshot(), pending: { ...st.pending, counted: true } });
           return 'STOPPED';
         }
-        if (st.stopped) return 'STOPPED';
-        return STATES.includes(st.phase) ? st.phase : 'IDLE';
+        if (st.stopped) return (lastPhase = 'STOPPED');
+        return (lastPhase = STATES.includes(st.phase) ? st.phase : 'IDLE');
       } catch (e) {
-        await stop('init : ' + String(e && e.message || e));
+        await stop('init : ' + msg(e));
         return 'STOPPED';
       }
     }
@@ -63,57 +82,76 @@
         if (phrase !== PHRASE) { log('armement refusé : phrase incorrecte'); return; }
         if (o.noManualBets !== true) { log('armement refusé : rappel « aucun pari manuel » non confirmé'); return; }
         if (typeof o.dryRun !== 'boolean') { log('armement refusé : dryRun requis'); return; }
-        if (secretLeaked()) { await stop('clé secrète présente dans la page'); return; }
         const st = await store.get();
+        if (isOther(st)) { foreign = true; log('armement refusé : autre onglet'); return; }
+        if (secretLeaked()) { await stop('clé secrète présente dans la page'); return; }
         if (st.pending && o.manualCheckDone !== true) { log('armement refusé : vérification manuelle requise'); return; }
         const patch = { phase: 'ARMED', stopped: false, reason: null, message: null, dryRun: o.dryRun, ownerTabId: tabId,
           pending: null, event: null, pick: null, before: null };
+        let sb = st.session && st.session.startBalance;
+        if (sb == null) {
+          // Lu UNE seule fois par session, jamais relu.
+          sb = await readers.readWalletStable(doc, sleep);
+          if (!(typeof sb === 'number' && Number.isFinite(sb) && sb > 0)) { log('armement refusé : solde illisible'); return; }
+          patch.session = { startBalance: sb };
+          patch.cycles = 0;
+        }
+        if (!guard) buildGuard(sb, st.guardSnap);
+        patch.guardSnap = guard.snapshot();
         if (!Array.isArray(st.tried)) patch.tried = [];
         if (!Array.isArray(st.bets)) patch.bets = [];
-        await store.set(patch);
+        await set(patch);
+        lastPhase = 'ARMED';
         log('armé', { dryRun: o.dryRun });
-      } catch (e) { await stop('arm : ' + String(e && e.message || e)); }
+      } catch (e) { await stop('arm : ' + msg(e)); }
     }
 
-    function safeHref(href) {
-      if (typeof href !== 'string' || href === '') return false;
-      if (href.startsWith('/')) return !href.startsWith('//') && !href.startsWith('/\\');
+    // URL absolue normalisée si même origine (https, ou http en local uniquement), sinon null.
+    function safeUrl(href) {
+      if (typeof href !== 'string' || href === '') return null;
       try {
-        const loc = deps.doc.location;
-        return new URL(href, loc.href).origin === loc.origin;
-      } catch (e) { return false; }
+        const base = new URL(doc.location.href);
+        const u = new URL(href, base);
+        const local = base.protocol === 'http:' && (base.hostname === 'localhost' || base.hostname === '127.0.0.1');
+        if (!(u.protocol === 'https:' || (local && u.protocol === 'http:'))) return null;
+        return u.origin === base.origin ? u.href : null;
+      } catch (e) { return null; }
     }
 
     async function go(href) {
-      if (!safeHref(href)) { await stop('navigation refusée (hôte non vérifié) : ' + href); return false; }
-      deps.navigate(href);
+      const url = safeUrl(href);
+      if (!url) { await stop('navigation refusée (hôte non vérifié) : ' + href); return false; }
+      deps.navigate(url);
       return true;
     }
 
-    const set = (p) => store.set(p);
-    const markTried = async (st, href) => set({ tried: [...(st.tried || []), href] });
+    const markTried = (st, href) => set({ tried: [...(st.tried || []), href] });
 
     async function resolveBets(st) {
       const bets = Array.isArray(st.bets) ? st.bets : [];
-      if (!bets.some((b) => b.status === 'pending')) return;
+      const open = bets.filter((b) => b.status === 'pending');
+      if (!open.length) return;
+      const stakes = open.map((b) => b.stake);
       const out = [];
       for (const b of bets) {
         if (b.status !== 'pending') { out.push(b); continue; }
-        const r = await tracker.resolve(b.ref);
+        const r = b.ref ? await tracker.resolve(b.ref) : tracker.resolveByBalance(b.prevBalance, stakes);
         if (r === 'won' || r === 'lost') {
           guard.recordResult(r);
-          guard.release(b.stake);
-          out.push({ ...b, status: r });
+          if (!b.released) guard.release(b.stake);
+          out.push({ ...b, status: r, released: true });
         } else out.push(b);
       }
-      await set({ bets: out });
+      await set({ bets: out, guardSnap: guard.snapshot() });
     }
 
-    // Vérifie les règles de fin ; renvoie vrai si la session s'arrête.
-    async function endRules() {
+    // Règles de fin ; vrai si la session s'arrête.
+    async function endRules(st) {
       const v = guard.check(null);
       if (v.verdict === 'ARRET') { await stop(v.reason); return true; }
-      if (guard.state.placed >= Math.min(cfg.maxBets, 5)) { await stop('limite de session atteinte'); return true; }
+      const n = (Array.isArray(st.bets) ? st.bets.length : 0) + (st.pending ? 1 : 0);
+      if (guard.state.placed >= maxBets || n >= maxBets) { await stop('limite de session atteinte'); return true; }
+      if ((st.cycles || 0) >= maxCycles) { await stop('limite de cycles atteinte'); return true; }
       return false;
     }
 
@@ -122,29 +160,37 @@
       : (e) => (e && (e.sport === 'football' || e.sport === 'basketball') ? 1 : 0);
 
     function readMarkets() {
-      const parsed = deps.parseMarkets(deps.doc);
+      const parsed = deps.parseMarkets(doc);
       const list = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.markets) ? parsed.markets : [];
       const dedupe = typeof deps.dedupeMarkets === 'function' ? deps.dedupeMarkets : Parser.dedupeMarkets;
       return dedupe(list).filter((m) => m && m.suspended !== true);
+    }
+
+    async function giveUp(st, href) {
+      await markTried(st, href);
+      await set({ phase: 'SCAN', event: null, pick: null });
+      return 'SCAN';
     }
 
     const phases = {
       async IDLE() { return 'IDLE'; },
       async ARMED() { await set({ phase: 'SCAN' }); return 'SCAN'; },
       async SCAN(st) {
+        if (doc.location.pathname !== LIVE_HREF) return (await go(LIVE_HREF)) ? 'SCAN' : 'STOPPED';
         await resolveBets(st);
-        if (await endRules()) return 'STOPPED';
+        if (await endRules(st)) return 'STOPPED';
         const tried = new Set(st.tried || []);
-        const events = (scanner.scanLive(deps.doc) || []).filter((e) => e && !tried.has(e.href));
-        await set({ phase: 'CHOIX', events });
+        const events = (scanner.scanLive(doc) || []).filter((e) => e && !tried.has(e.href));
+        await set({ phase: 'CHOIX', events, cycles: (st.cycles || 0) + 1 });
         return 'CHOIX';
       },
       async CHOIX(st) {
         const event = selector.pickEvent(st.events || [], new Set(st.tried || []), quickCountFor);
         if (!event) { await set({ phase: 'PAUSE', events: null }); return 'PAUSE'; }
-        if (!safeHref(event.href)) { await stop('navigation refusée (hôte non vérifié) : ' + event.href); return 'STOPPED'; }
+        const url = safeUrl(event.href);
+        if (!url) { await stop('navigation refusée (hôte non vérifié) : ' + event.href); return 'STOPPED'; }
         await set({ phase: 'ANALYSE', event, events: null });
-        deps.navigate(event.href);
+        deps.navigate(url);
         return 'ANALYSE';
       },
       async ANALYSE(st) {
@@ -152,26 +198,16 @@
         const markets = selector.quickMarkets(readMarkets(), event.sport, cfg);
         const matches = markets.length ? await deps.analyze(markets, { event }) : [];
         const picks = selector.pickSelections(matches, markets, cfg, event.sport);
-        if (!picks.length) {
-          await markTried(st, event.href);
-          await set({ phase: 'SCAN', event: null });
-          if (!(await go(LIVE_HREF))) return 'STOPPED';
-          return 'SCAN';
-        }
         const p = picks[0];
-        const m = markets.find((x) => x.id === p.marketId);
+        const m = p && markets.find((x) => x.id === p.marketId);
+        if (!p || !m || typeof m.title !== 'string') return giveUp(st, event.href);
         await set({ phase: 'GARDE', pick: { ...p, marketTitle: m.title } });
         return 'GARDE';
       },
       async GARDE(st) {
-        if (await endRules()) return 'STOPPED';
-        const suggested = await deps.stakeFor({ event: st.event, pick: st.pick });
-        const stake = guard.maxStake(suggested);
-        if (!(stake > 0)) {
-          await markTried(st, st.event.href);
-          await set({ phase: 'SCAN', event: null, pick: null });
-          return (await go(LIVE_HREF)) ? 'SCAN' : 'STOPPED';
-        }
+        if (await endRules(st)) return 'STOPPED';
+        const stake = guard.maxStake(await deps.stakeFor({ event: st.event, pick: st.pick }));
+        if (!(stake > 0)) return giveUp(st, st.event.href);
         await set({ phase: 'EXEC', stake });
         return 'EXEC';
       },
@@ -181,10 +217,19 @@
         if (!st.dryRun && !Array.isArray(before)) { await stop('suivi des paris indisponible'); return 'STOPPED'; }
         const decision = { marketTitle: pk.marketTitle, window: pk.window, label: pk.label, event: st.event.name,
           analysedOdds: pk.odds, suggestedStake: st.stake, confidence: pk.confidence, dryRun: st.dryRun };
-        const r = await executor.place(decision);
+        let r;
+        try {
+          r = await executor.place(decision);
+        } finally {
+          // L'exécuteur modifie le guard : on persiste l'instantané quoi qu'il arrive. Un pending restant contient sa réserve.
+          const after = await store.get();
+          const patch = { guardSnap: guard.snapshot() };
+          if (after.pending && !after.pending.counted) patch.pending = { ...after.pending, reservedInSnap: true };
+          await set(patch);
+        }
         const tried = [...(st.tried || []), st.event.href];
-        if (r.status === 'placed') { await set({ phase: 'ATTENTE', before, tried, placedStake: r.stake }); return 'ATTENTE'; }
-        if (r.status === 'halt') { await stop(r.reason || 'arrêt de l\'exécuteur'); return 'STOPPED'; }
+        if (r && r.status === 'placed') { await set({ phase: 'ATTENTE', before, tried, placedStake: r.stake }); return 'ATTENTE'; }
+        if (!r || r.status === 'halt') { await stop((r && r.reason) || 'arrêt de l\'exécuteur'); return 'STOPPED'; }
         await set({ phase: 'PAUSE', tried, pick: null, event: null });
         log(r.status === 'dry' ? 'pari à blanc' : 'pari refusé', r.reason);
         return 'PAUSE';
@@ -193,6 +238,10 @@
         const id = await tracker.identify(st.before || []);
         if (!id || id.method === 'none') { await stop('pari placé non identifié : vérifier Mes paris + solde'); return 'STOPPED'; }
         const bet = { ref: id.reference || null, method: id.method, stake: st.placedStake, status: 'pending', event: st.event.name };
+        if (!bet.ref) {
+          bet.prevBalance = await readers.readWalletStable(doc, sleep);
+          if (typeof bet.prevBalance !== 'number') { await stop('pari sans référence et solde illisible : vérifier Mes paris + solde'); return 'STOPPED'; }
+        }
         await set({ phase: 'PAUSE', bets: [...(st.bets || []), bet], before: null, pick: null, event: null });
         return 'PAUSE';
       },
@@ -205,16 +254,23 @@
 
     async function step() {
       if (foreign) return 'STOPPED';
+      if (running) return lastPhase;
+      running = true;
       let st;
       try {
         st = await store.get();
-        if (st.stopped || st.phase === 'STOPPED') return 'STOPPED';
-        if (st.ownerTabId != null && st.ownerTabId !== tabId) { foreign = true; return 'STOPPED'; }
-        const fn = phases[st.phase] || phases.IDLE;
-        return await fn(st);
+        if (st.stopped || st.phase === 'STOPPED') return (lastPhase = 'STOPPED');
+        if (isOther(st)) { foreign = true; return (lastPhase = 'STOPPED'); }
+        lastPhase = STATES.includes(st.phase) ? st.phase : 'IDLE';
+        if (lastPhase === 'IDLE') return 'IDLE';
+        if (!guard) { await stop('session sans garde-fous (init manquant)'); return 'STOPPED'; }
+        lastPhase = await phases[lastPhase](st);
+        return lastPhase;
       } catch (e) {
-        await stop(`${st && st.phase || '?'} : ${String(e && e.message || e)}`);
+        await stop(`${(st && st.phase) || '?'} : ${msg(e)}`);
         return 'STOPPED';
+      } finally {
+        running = false;
       }
     }
 
