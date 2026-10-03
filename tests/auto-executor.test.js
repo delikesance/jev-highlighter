@@ -7,7 +7,7 @@ const { createExecutor } = require('../extension/src/auto/executor');
 
 const CFG = {
   minOdds: 1.3, maxOdds: 4, maxDriftPct: 3, minLeadSec: 90, minConfidence: 0.6, confirmTimeoutMs: 8000, hiddenTabMs: 5000, slipWaitMs: 3000, pollMs: 250, identifyRetries: 3, pauseMs: 5000, maxCycles: 60,
-  maxBets: 5, maxLosses: 3, maxLossFraction: 0.5, maxStakeFraction: 0.1, quickMarkets: { football: [/sur la période/] },
+  maxBets: 5, maxLosses: 3, maxLossFraction: 0.5, maxStakeFraction: 0.1, myBetsPath: '/mes-paris', myBetsWaitMs: 10000, quickMarkets: { football: [/sur la période/] },
 };
 const DEC = {
   marketTitle: 'Résultat sur la période (seule)', window: '30:00 - 34:59', label: 'Canada', event: 'Canada - Pérou',
