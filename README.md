@@ -67,3 +67,16 @@ Quand le ticket contient une sélection, l'extension lit le solde (`CONFIG.selec
 Le montant s'affiche dans un panneau au-dessus du champ de mise (avec « Copier »). **Le champ de mise n'est jamais rempli
 automatiquement** et aucun pari n'est lancé. Réglages dans `CONFIG.stake` (tranches, tours, plafond en % du solde,
 mise minimale) ; case « Suggestion de mise » dans le popup. C'est la préférence du modèle, pas une garantie de gain.
+
+## Interface « JEV Lens » (injectée dans la page)
+Toute l'UI vit dans des **Shadow DOM** (`jev-lens`, `jev-picks`, `jev-stake`) : le CSS du site ne la touche pas. Seul l'anneau
+sur la cote est une classe de page (`styles/injected.css`) ; le contenu des boutons du site n'est jamais modifié.
+- **Marqueurs** : anneau menthe (reco) / ambre + halo (top pick), pastille `★ 62`, barre de score ; états analyse (…), cote modifiée (↻), erreur.
+- **Carte de survol** : poids JEV de chaque option du marché + confidence (« pas une probabilité réelle »).
+- **Sélection du moment** : bloc inséré au-dessus des marchés (top 3). Cliquer une carte fait défiler jusqu'à la cote (jamais de clic sur le site).
+- **Dock** (bas-gauche) : classement, interrupteurs analyse auto / « Remonter les picks en tête », réduire/fermer (mémorisé).
+- **Remonter les picks en tête** : réordonnancement visuel par CSS `order` (nœuds jamais déplacés, réversible) ; no-op si le conteneur contient autre chose que des marchés.
+- **Assistant de mise** : module dans le ticket avant le champ de mise, « Copier », « Détail » = zoom en 3 étapes.
+- Polices Sora + JetBrains Mono embarquées (`extension/fonts/`).
+
+Tests : `npm test` (unitaires + tests de fumée jsdom qui exécutent tous les scripts de contenu).

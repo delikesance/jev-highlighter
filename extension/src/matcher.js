@@ -84,7 +84,15 @@
         odds: r.option.odds,
         oddsText: r.option.oddsText,
         probabilities: r.probabilities,
-        element: r.option.element
+        // poids JEV de toutes les options disponibles du marché (pour la carte de survol)
+        distribution: market.options
+          .filter((o) => o.available)
+          .map((o) => {
+            const v = lookupNormalized(r.probabilities, o.key);
+            return { name: o.name, score: isNum(v) ? v : null };
+          }),
+        element: r.option.element,
+        container: market.container
       });
     }
     for (const id of opts.expectedIds || []) {
@@ -109,7 +117,7 @@
   /** Version sérialisable (sans DOM) pour le popup. */
   function toPlain(rec) {
     if (!rec) return null;
-    const { element, ...rest } = rec;
+    const { element, container, ...rest } = rec;
     return rest;
   }
 

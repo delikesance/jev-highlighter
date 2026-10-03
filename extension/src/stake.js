@@ -126,7 +126,7 @@
       const pick = pickCell(cells, answers && answers[id], includeNone);
       if (!pick) throw new Error(`Réponse de mise invalide (tour ${round})`);
       if (pick.none) return { none: true, reason: 'jev-says-no', rounds };
-      rounds.push({ lo: pick.cell.lo, hi: pick.cell.hi, confidence: pick.confidence });
+      rounds.push({ cells, index: cells.indexOf(pick.cell), lo: pick.cell.lo, hi: pick.cell.hi, confidence: pick.confidence });
       lo = pick.cell.lo;
       hi = pick.cell.hi;
       previous = pick.cell.key;

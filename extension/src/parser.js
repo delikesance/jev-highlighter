@@ -49,7 +49,7 @@
     const fingerprint = hash(
       [title, ...options.map((o) => `${o.key}:${o.odds}:${o.available ? 1 : 0}`)].join('|')
     );
-    return { market: { title, options, suspended, fingerprint, element: box } };
+    return { market: { title, options, suspended, fingerprint, element: box, container } };
   }
 
   /**

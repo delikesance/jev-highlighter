@@ -8,7 +8,7 @@
   J.__contentStarted = true;
   const {
     CONFIG, log, warn, setDebug, debounce, normalizeText, parseMarkets, buildRequest, matchAnswers, toPlain,
-    readWallet, readSlip, slipFingerprint, suggestStake, Highlighter, StakeUI, Storage
+    readWallet, readSlip, slipFingerprint, suggestStake, rankPicks, Highlighter, Picks, Reorder, StakeUI, UI, Storage
   } = J;
 
   const st = {
@@ -24,10 +24,37 @@
     stats: { markets: 0, selections: 0, availableSelections: 0 },
     analysed: 0,
     recs: [],
-    best: null
+    best: null,
+    parsed: null
   };
 
   const send = (msg) => chrome.runtime.sendMessage(msg);
+
+  /** Met à jour bloc de picks, dock et réordonnancement à partir de l'état courant. */
+  function refreshUI(parsed) {
+    if (parsed) st.parsed = parsed;
+    const p = st.parsed;
+    const ranked = rankPicks(st.recs);
+    const first = p && p.list[0];
+    Picks.render({
+      ranked,
+      best: st.best,
+      analysed: st.analysed,
+      anchor: first ? first.container : null,
+      hasMarkets: !!(p && p.list.length),
+      status: st.status,
+      error: st.error,
+      settings: st.settings
+    });
+    if (st.settings.reorderPicks && ranked.length) Reorder.applyOrder(ranked.map((r) => r.container));
+    else Reorder.restoreOrder();
+  }
+
+  function setStatus(status, error = null) {
+    st.status = status;
+    st.error = error;
+    Highlighter.setState(status === 'analyzing' ? 'loading' : status === 'stale' ? 'stale' : status === 'error' ? 'error' : '');
+  }
 
   function cacheSet(fp, entry) {
     st.cache.set(fp, entry);
@@ -49,8 +76,8 @@
     st.recs = m.recommendations;
     st.best = m.best;
     st.analysed = Object.keys(entry.answers).length;
-    st.status = 'done';
-    st.error = null;
+    setStatus('done');
+    refreshUI(parsed);
   }
 
   async function analyze({ force = false } = {}) {
@@ -63,7 +90,8 @@
       st.recs = [];
       st.best = null;
       st.analysed = 0;
-      st.status = 'no-markets';
+      setStatus('no-markets');
+      refreshUI(parsed);
       return;
     }
 
@@ -81,16 +109,16 @@
     log('Building evaluation request');
     const built = buildRequest(parsed, { pageTitle: document.title, pagePath: location.pathname });
     if (!built.questionCount) {
-      st.status = 'no-markets';
-      st.error = 'Aucun marché évaluable (moins de 2 sélections disponibles)';
+      setStatus('no-markets', 'Aucun marché évaluable (moins de 2 sélections disponibles)');
+      refreshUI(parsed);
       return;
     }
 
     abortInflight();
     const requestId = ++st.seq;
     st.inflight = { requestId, fp };
-    st.status = 'analyzing';
-    st.error = null;
+    setStatus('analyzing');
+    refreshUI(parsed);
     st.lastSentAt = Date.now();
     log(`Sending ${built.questionCount} questions`);
 
@@ -110,8 +138,8 @@
       const err = (res && res.error) || { code: 'unknown', message: 'Réponse vide' };
       if (err.code === 'aborted') return;
       if (err.code === 'rate_limited') st.cooldownUntil = Date.now() + CONFIG.cooldownAfterRateLimitMs;
-      st.status = 'error';
-      st.error = err.message;
+      setStatus('error', err.message);
+      refreshUI();
       log(`Error: ${err.code} ${err.message}`);
       return;
     }
@@ -121,7 +149,8 @@
     const after = parseMarkets(document);
     if (after.fingerprint !== fp) {
       log('DOM changed during request, result discarded');
-      st.status = 'stale';
+      setStatus('stale');
+      refreshUI(after);
       if (st.settings.autoAnalyze) scheduleTick();
       return;
     }
@@ -133,15 +162,21 @@
   // ------------------------------------------------------------------ auto-analyse (MutationObserver)
 
   const tick = async () => {
-    if (!st.settings.autoAnalyze) {
-      // Pas d'auto-analyse : signaler seulement que l'affichage est périmé.
-      const fp = parseMarkets(document).fingerprint;
-      if (st.recs.length && !st.cache.has(fp)) st.status = 'stale';
+    const parsed = parseMarkets(document);
+    const cached = st.cache.get(parsed.fingerprint);
+    if (!st.recs.length) refreshUI(parsed); // affiche le dock dès que des marchés sont présents
+    if (cached && st.recs.length) {
+      applyEntry(parsed, cached); // idempotent : ré-applique si la SPA a re-rendu les boutons
       return;
     }
+    if (st.recs.length && st.status !== 'analyzing') {
+      setStatus('stale'); // une cote a bougé : les marqueurs deviennent « périmés » (↻)
+      refreshUI(parsed);
+    }
+    if (!st.settings.autoAnalyze) return;
     const now = Date.now();
     const wait = Math.max(st.lastSentAt + CONFIG.minIntervalMs - now, st.cooldownUntil - now, 0);
-    if (wait > 0 && !st.cache.has(parseMarkets(document).fingerprint)) {
+    if (wait > 0 && !cached) {
       setTimeout(scheduleTick, wait);
       return;
     }
@@ -239,12 +274,11 @@
   const scheduleStake = debounce(stakeTick, CONFIG.stake.debounceMs);
 
   const stripJev = (s) => (s || '').split(/\s+/).filter((c) => c && !c.startsWith('jev-')).sort().join(' ');
-  const isOwnNode = (n) => n.nodeType === 1 && (n.classList.contains(Highlighter.CLS.badge) || n.classList.contains(Highlighter.CLS.overlay));
   function isOwnMutation(m) {
     const t = m.target.nodeType === 1 ? m.target : m.target.parentElement;
-    if (t && t.closest(`.${Highlighter.CLS.overlay}`)) return true; // tout ce qui est dans notre calque
+    if (t && t.closest(`[${UI.HOST_ATTR}]`)) return true; // tout ce qui est dans nos hôtes
     if (m.type === 'attributes') return m.attributeName === 'class' && stripJev(m.oldValue) === stripJev(m.target.getAttribute('class'));
-    if (m.type === 'childList') return [...m.addedNodes, ...m.removedNodes].every(isOwnNode);
+    if (m.type === 'childList') return [...m.addedNodes, ...m.removedNodes].every(UI.isHostNode);
     return false;
   }
 
@@ -273,7 +307,8 @@
     st.recs = [];
     st.best = null;
     st.analysed = 0;
-    st.status = 'idle';
+    setStatus('idle');
+    refreshUI(parseMarkets(document));
     scheduleTick();
   }
   setInterval(checkUrl, CONFIG.urlPollMs);
@@ -302,7 +337,8 @@
         Highlighter.clear();
         st.recs = [];
         st.best = null;
-        st.status = 'idle';
+        setStatus('idle');
+        refreshUI();
       }
       sendResponse(snapshot());
     })();
@@ -314,6 +350,7 @@
   Storage.getSettings().then((s) => {
     st.settings = s;
     setDebug(s.debug);
+    refreshUI(parseMarkets(document));
     scheduleTick();
     scheduleStake();
   });
@@ -321,6 +358,7 @@
     Object.assign(st.settings, patch);
     if ('debug' in patch) setDebug(patch.debug);
     if (patch.autoAnalyze) scheduleTick();
+    if (['autoAnalyze', 'reorderPicks', 'dockOpen', 'dockCollapsed'].some((k) => k in patch)) refreshUI();
     if ('stakeAdvice' in patch) {
       stakeState.fp = null;
       scheduleStake();
