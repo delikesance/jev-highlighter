@@ -19,6 +19,7 @@
   // Textes structurels connus, ancrés à leur contexte ET à la forme attendue du texte.
   const ODDS_RE = /^\d+(?:[.,]\d+)?$/;
   const EMPTY_SLIP_COPY = new Set(['Place un nouveau pari', 'On croise les doigts pour toi !']);
+  const BOOST_COPY = /^Booste ton pari\s*!?\s*Ajoute (?:une|1) sélection supérieure à 1[,.]20$/i;
   const selectionCount = (t) => /^\d+\s+s[eé]lections?$/i.test(t);
   const first = (el, ctx, sel) => { const c = el.closest(ctx); return !!c && c.querySelector(sel) === el; };
   const KNOWN = [
@@ -29,6 +30,10 @@
     // Copie informative du ticket VIDE, reconnue textuellement et seulement dans bcdk-empty-view.
     ['bcdk-empty-view *', (el) => !!el.closest('bcdk-empty-view'), (t) => EMPTY_SLIP_COPY.has(t)],
     ['betting-slip-footer *', (el) => !!el.closest('betting-slip-footer'), (t) => t === 'Gains possibles'],
+    // Promotion non décisionnelle, admise seulement avec sa formulation exacte dans le bandeau du ticket.
+    ['betting-slip-alert, betting-slip-alert *', (el) => !!el.closest('betting-slip-alert'), (t) => BOOST_COPY.test(t)],
+    // Le site peut rendre le suffixe de devise hors du composant numérique de cote.
+    ['betting-slip-footer-odds *, betting-slip-odds-field *', (el) => !!el.closest('betting-slip-footer-odds, betting-slip-odds-field'), (t) => t === 'EUR'],
     ['.progressiveBettingSlip_cardMarketLabel', () => true, () => true],
     ['.progressiveBettingSlip_cardMarketValue', () => true, () => true],
     ['.progressiveBettingSlip_footerLabel', () => true, () => true],
