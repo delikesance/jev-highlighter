@@ -36,20 +36,24 @@
     });
   }
 
-  // `sport` (4e paramètre) : football par défaut ; un sport inconnu n'a aucun marché autorisé.
+  // `sport` (4e paramètre) OBLIGATOIRE : l'appelant doit passer `event.sport`.
+  // Sans sport (ou sport inconnu) : aucun pari (fail-closed).
   function pickSelections(answers, markets, cfg, sport) {
-    if (!Array.isArray(answers) || !cfg) return [];
-    const allowed = new Map(quickMarkets(markets, sport || 'football', cfg).map((m) => [m.id, m]));
+    if (!Array.isArray(answers) || !cfg || typeof sport !== 'string' || !SPORTS.includes(sport)) return [];
+    const allowed = new Map(quickMarkets(markets, sport, cfg).map((m) => [m.id, m]));
     const out = [];
+    const done = new Set();
     for (const a of answers) {
       if (!a || typeof a !== 'object' || typeof a.marketId !== 'string' || typeof a.choice !== 'string') continue;
       const m = allowed.get(a.marketId);
+      if (done.has(a.marketId)) continue;
       if (!m || !Array.isArray(m.options)) continue;
       if (!isNum(a.confidence) || !isNum(cfg.minConfidence) || a.confidence < cfg.minConfidence) continue;
       const want = norm(a.choice);
       const o = m.options.find((x) => x && norm(x.name) === want);
       if (!o || o.available === false || !isNum(o.odds)) continue;
       if (!isNum(cfg.minOdds) || !isNum(cfg.maxOdds) || o.odds < cfg.minOdds || o.odds > cfg.maxOdds) continue;
+      done.add(a.marketId);
       out.push({ marketId: m.id, label: o.name, odds: o.odds, confidence: a.confidence, window: m.window == null ? null : m.window });
     }
     return out;
