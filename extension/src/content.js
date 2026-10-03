@@ -196,7 +196,7 @@
     }
     await analyze();
   };
-  const scheduleTick = debounce(tick, CONFIG.debounceMs);
+  const scheduleTick = debounce(tick, CONFIG.debounceMs, CONFIG.debounceMaxWaitMs);
 
   // ------------------------------------------------------------------ suggestion de mise
 
@@ -286,7 +286,7 @@
       StakeUI.showStatus(`erreur : ${e.message}`, slip.stakeInput, true);
     }
   }
-  const scheduleStake = debounce(stakeTick, CONFIG.stake.debounceMs);
+  const scheduleStake = debounce(stakeTick, CONFIG.stake.debounceMs, CONFIG.stake.debounceMaxWaitMs);
 
   const stripJev = (s) => (s || '').split(/\s+/).filter((c) => c && !c.startsWith('jev-')).sort().join(' ');
   function isOwnMutation(m) {
@@ -298,9 +298,16 @@
   }
 
   const observer = new MutationObserver((muts) => {
-    if (muts.every(isOwnMutation)) return;
+    const real = muts.filter((m) => !isOwnMutation(m));
+    if (!real.length) return;
     scheduleTick();
-    scheduleStake();
+    // la mise ne dépend que du ticket et du solde : on ignore le bruit du reste de la page (chrono, vidéo, scores…)
+    const roots = CONFIG.selectors.slip.watchRoots;
+    const touchesSlip = real.some((m) => {
+      const el = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+      return !!el && !!el.closest && !!el.closest(roots);
+    });
+    if (touchesSlip) scheduleStake();
   });
   observer.observe(document.documentElement, {
     childList: true,

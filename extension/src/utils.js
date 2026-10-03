@@ -62,13 +62,31 @@
     return Number.isFinite(n) && n > 0 ? n : null;
   }
 
-  function debounce(fn, ms) {
+  /**
+   * Anti-rebond avec garde-fou : sur une page live le DOM bouge en continu (chrono, scores, cotes animées) et un
+   * anti-rebond pur ne se déclencherait jamais. `maxWait` force l'exécution au bout de ce délai.
+   */
+  function debounce(fn, ms, maxWait = Infinity) {
     let t = null;
-    const d = (...args) => {
+    let first = 0;
+    const run = (args) => {
       clearTimeout(t);
-      t = setTimeout(() => fn(...args), ms);
+      t = null;
+      first = 0;
+      fn(...args);
     };
-    d.cancel = () => clearTimeout(t);
+    const d = (...args) => {
+      const now = Date.now();
+      if (!first) first = now;
+      clearTimeout(t);
+      if (now - first >= maxWait) return run(args);
+      t = setTimeout(() => run(args), ms);
+    };
+    d.cancel = () => {
+      clearTimeout(t);
+      t = null;
+      first = 0;
+    };
     return d;
   }
 
