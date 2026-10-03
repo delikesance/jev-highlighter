@@ -44,7 +44,7 @@ function setup(o = {}) {
     }
   };
   const tracker = {
-    snapshotOngoing: rec('snapshot', async () => []),
+    snapshotOngoing: rec('snapshot', async () => (o.snapshot === null ? null : [])),
     identify: rec('identify', async () => o.identify || { method: 'reference', reference: 'R' + calls.length }),
     resolve: rec('resolve', async (ref) => (o.resolve ? o.resolve(ref) : 'pending')),
     resolveByBalance: rec('resolveByBalance', (prev, stakes) => (o.byBalance ? o.byBalance(prev, stakes) : 'unknown'))
@@ -320,15 +320,25 @@ test('identify none → STOPPED', async () => {
   assert.equal(await runUntil(t.ctl), 'STOPPED');
 });
 
-test('pari sans référence : resolveByBalance, jamais resolve(null), réserve libérée une fois', async () => {
-  const t = await armed({ identify: { method: 'balance' }, byBalance: () => 'lost' });
-  for (let i = 0; i < 12; i++) await t.ctl.step();
-  assert.ok(t.calls.includes('resolveByBalance'));
-  assert.ok(!t.calls.includes('resolve'));
-  const b = t.store.raw().bets[0];
-  assert.equal(b.prevBalance, 100);
-  assert.equal(b.status, 'lost');
-  assert.equal(b.released, true);
+test('identify balance → STOPPED, pari « unverified » compté, réserve conservée, aucune relance', async () => {
+  const t = await armed({ identify: { method: 'balance' } });
+  assert.equal(await runUntil(t.ctl), 'STOPPED');
+  const st = t.store.raw();
+  assert.equal(st.bets.length, 1);
+  assert.equal(st.bets[0].status, 'unverified');
+  assert.equal(st.bets[0].prevBalance, 100);
+  assert.ok(t.guard.state.reserved > 0);
+  assert.match(st.reason, /suivi impossible/);
+  assert.ok(!t.calls.includes('resolveByBalance'));
+  const n = t.calls.length;
+  await t.ctl.step();
+  assert.equal(t.calls.length, n);
+});
+
+test('snapshot null → STOPPED sans place()', async () => {
+  const t = await armed({ snapshot: null });
+  assert.equal(await runUntil(t.ctl), 'STOPPED');
+  assert.ok(!t.calls.includes('place'));
 });
 
 test('3 défaites résolues → STOPPED, réserve libérée', async () => {
@@ -410,10 +420,10 @@ test('(a bis) lastPlaced adopté sans snapshot « before » → pari sans réfé
   await store.set({ before: null });
   const t = setup({ store, world });
   await t.ctl.init();
-  assert.equal(await t.ctl.step(), 'PAUSE');
+  assert.equal(await t.ctl.step(), 'STOPPED');
   assert.ok(!t.calls.includes('place'));
   const b = store.raw().bets[0];
-  assert.equal(b.ref, null);
+  assert.equal(b.ref, null); assert.equal(b.status, 'unverified');
   assert.equal(b.prevBalance, 100);
 });
 

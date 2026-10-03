@@ -1,4 +1,5 @@
-/** Suivi des paris Auto (spec §7). LECTURE SEULE : ne navigue jamais, ne clique jamais. Toute donnée douteuse -> valeur sûre. */
+/** Dépendance injectée : getMyBetsDoc(filter 'ongoing'|'ended') -> Promise<Document>.
+ * Suivi des paris Auto (spec §7). LECTURE SEULE : ne navigue jamais, ne clique jamais. Toute donnée douteuse -> valeur sûre. */
 (function (root) {
   const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 
@@ -20,22 +21,29 @@
       if (!Array.isArray(l)) throw new Error('lecture Mes paris invalide');
       return l;
     };
-    const refs = (l) => l.map((b) => (b && b.reference != null ? String(b.reference) : null)).filter((r) => r);
+    // Clé de chaque carte : référence, sinon clé de repli stable « id:<data-qa> », sinon null (illisible).
+    const keyOf = (b) => (b && b.reference != null && b.reference !== '' ? String(b.reference) : (b && b.id ? 'id:' + b.id : null));
+    const refs = (l) => l.map(keyOf);
 
     async function snapshotOngoing() {
-      try { return refs(await bets('ongoing')); } catch (e) { log('tracker: snapshot impossible', e && e.message); return []; }
+      try {
+        const k = refs(await bets('ongoing'));
+        return k.includes(null) ? null : k;
+      } catch (e) { log('tracker: snapshot impossible', e && e.message); return null; }
     }
 
     async function identify(before) {
+      if (!Array.isArray(before)) return balance() !== null ? { method: 'balance' } : { method: 'none' };
       const prev = new Set((Array.isArray(before) ? before : []).map(String));
       let fresh = [];
       for (let i = 0; i < retries; i++) {
         if (i > 0) { try { await sleep(pollMs); } catch (e) { /* ignore */ } }
         try {
-          fresh = [...new Set(refs(await bets('ongoing')).filter((r) => !prev.has(r)))];
+          const keys = refs(await bets('ongoing'));
+          fresh = [...new Set(keys.filter((r) => r === null || !prev.has(r)))];
         } catch (e) { log('tracker: relecture impossible', e && e.message); fresh = []; }
-        if (fresh.length >= 2) break;
-        if (fresh.length === 1) return { method: 'reference', reference: fresh[0] };
+        if (fresh.length >= 2 || (fresh.length === 1 && (fresh[0] === null || fresh[0].startsWith('id:')))) break;
+        if (fresh.length === 1 && fresh[0] !== null && !fresh[0].startsWith('id:')) return { method: 'reference', reference: fresh[0] };
       }
       return balance() !== null ? { method: 'balance' } : { method: 'none' };
     }
@@ -52,12 +60,10 @@
       return 'pending';
     }
 
+    // Le solde seul ne permet pas de distinguer un pari en cours (mise déjà débitée) d'un pari perdu, ni de conclure 'won' :
+    // ce secours ne conclut donc JAMAIS. Signature conservée ; toujours 'unknown'.
     function resolveByBalance(prevBalance, pendingStakes) {
-      try {
-        const bal = balance();
-        if (bal === null || !isNum(prevBalance) || !isNum(pendingStakes) || pendingStakes <= 0) return 'unknown';
-        return bal <= prevBalance - pendingStakes + 0.005 ? 'lost' : 'unknown';
-      } catch (e) { return 'unknown'; }
+      return 'unknown';
     }
 
     return { snapshotOngoing, identify, resolve, resolveByBalance };
