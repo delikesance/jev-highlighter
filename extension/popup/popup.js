@@ -1,6 +1,6 @@
 // Tout le contenu dynamique est écrit via textContent (jamais innerHTML).
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { mode: 'dev', apiKey: '', endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, matchContext: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false };
+const DEFAULTS = { mode: 'dev', apiKey: '', hasKey: false, endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, matchContext: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false };
 const pct = (x) => (typeof x === 'number' ? `${Math.round(x * 100)}%` : '—');
 
 const STATUS_TEXT = {
@@ -92,6 +92,7 @@ $('save').addEventListener('click', async () => {
   await chrome.storage.local.set({
     mode: $('mode').value,
     apiKey: $('apiKey').value.trim(),
+    hasKey: !!$('apiKey').value.trim(),
     endpoint: $('endpoint').value.trim(),
     backendUrl: $('backendUrl').value.trim()
   });

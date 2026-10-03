@@ -2,9 +2,9 @@
  * Service worker. SEUL endroit qui lit la clé API et appelle JEV (ou votre backend).
  * Le content script n'a jamais accès à la clé.
  */
-importScripts('config.js', 'utils.js', 'storage.js', 'jev.js');
+importScripts('config.js', 'utils.js', 'storage.js', 'jev.js', 'secrets.js', 'transport.js');
 
-const { log, error, setDebug, Storage, evaluate } = globalThis.JEV;
+const { log, error, setDebug, Secrets, Transport } = globalThis.JEV;
 const controllers = new Map(); // `${tabId}:${requestId}` -> AbortController
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -23,9 +23,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     controllers.set(key, ctrl);
     const t0 = Date.now();
     try {
-      const settings = await Storage.getSettings();
+      const settings = await Secrets.getSecretSettings();
       setDebug(settings.debug);
-      const data = await evaluate(msg.body, settings, ctrl.signal);
+      const data = await Transport.evaluate(msg.body, settings, ctrl.signal);
       sendResponse({ ok: true, data, ms: Date.now() - t0 });
     } catch (e) {
       if (e.code !== 'aborted') error(e.code || 'error', e.message);
@@ -36,5 +36,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   })();
   return true; // réponse asynchrone
 });
+
+chrome.runtime.onInstalled.addListener(() => Secrets.syncHasKey().catch((e) => error('sync', e.message)));
+Secrets.syncHasKey().catch((e) => error('sync', e.message));
 
 log('service worker ready');

@@ -8,7 +8,7 @@
       // Doc : https://docs.typesafe.ai/api.md  (POST /v1/systemone, Bearer auth)
       endpoint: 'https://api.typesafe.ai/v1/systemone',
       authHeaderName: 'Authorization',
-      authScheme: 'Bearer', // header = `${authScheme} ${apiKey}` ; mettre '' pour envoyer la clé seule
+      authScheme: 'Bearer', // header = `${authScheme} <clé>` ; mettre '' pour envoyer la clé seule
       // `model` est OBLIGATOIRE (sinon 422). "jev-latest" = alias documenté ; voir https://docs.typesafe.ai/models.md
       model: 'jev-latest',
       maxQuestionsPerRequest: 100, // À CONFIRMER : la doc ne fixe pas de limite ; on découpe au-delà.
