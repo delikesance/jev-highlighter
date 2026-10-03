@@ -54,7 +54,8 @@
       state: {
         source: 'bookmaker_page',
         page_title: ctx.pageTitle || '',
-        page_path: ctx.pagePath || ''
+        page_path: ctx.pagePath || '',
+        ...(ctx.matchContext ? { match_context: ctx.matchContext } : {})
       },
       questions
     };

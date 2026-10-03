@@ -8,7 +8,7 @@
   J.__contentStarted = true;
   const {
     CONFIG, log, warn, setDebug, debounce, normalizeText, parseMarkets, buildRequest, matchAnswers, toPlain,
-    readWallet, readSlip, slipFingerprint, suggestStake, rankPicks, Highlighter, Picks, Reorder, StakeUI, UI, Storage
+    readWallet, readSlip, slipFingerprint, suggestStake, rankPicks, Highlighter, Picks, Reorder, StakeUI, UI, Storage, MatchContext
   } = J;
 
   const st = {
@@ -106,8 +106,17 @@
       if (st.inflight && st.inflight.fp === fp) return;
     }
 
+    // Contexte du match (forme, classement, face-à-face, live) : lu sur `<match>/match-center`, jamais bloquant.
+    const matchKey = MatchContext.keyFromPath(location.pathname);
+    let matchContext = null;
+    if (matchKey && st.settings.matchContext) {
+      setStatus('analyzing');
+      matchContext = await MatchContext.get(matchKey); // rafraîchi seulement s'il dépasse CONFIG.context.ttlMs
+      log(matchContext ? `Match context ready (${Object.keys(matchContext).join(', ')})` : 'No match context');
+    }
+
     log('Building evaluation request');
-    const built = buildRequest(parsed, { pageTitle: document.title, pagePath: location.pathname });
+    const built = buildRequest(parsed, { pageTitle: document.title, pagePath: location.pathname, matchContext });
     if (!built.questionCount) {
       setStatus('no-markets', 'Aucun marché évaluable (moins de 2 sélections disponibles)');
       refreshUI(parsed);
@@ -162,6 +171,11 @@
   // ------------------------------------------------------------------ auto-analyse (MutationObserver)
 
   const tick = async () => {
+    if (/\/match-center\/?$/.test(location.pathname)) {
+      // On est sur la page match-center : on mémorise ce qui s'affiche (source passive du contexte).
+      if (st.settings.matchContext) MatchContext.ingestDocument(document, MatchContext.keyFromPath(location.pathname));
+      return;
+    }
     const parsed = parseMarkets(document);
     const cached = st.cache.get(parsed.fingerprint);
     if (!st.recs.length) refreshUI(parsed); // affiche le dock dès que des marchés sont présents
@@ -240,7 +254,8 @@
     const ctx = {
       wallet,
       totalOdds: slip.totalOdds,
-      selections: slip.selections.map((s) => ({ ...s, ...jevPreferenceFor(s) }))
+      selections: slip.selections.map((s) => ({ ...s, ...jevPreferenceFor(s) })),
+      matchContext: st.settings.matchContext ? MatchContext.peek(MatchContext.keyFromPath(location.pathname)) : null
     };
     log(`Stake sizing: wallet ${wallet}, ${ctx.selections.length} selection(s), odds ${ctx.totalOdds}`);
     StakeUI.showStatus('calcul de la mise…', slip.stakeInput);
@@ -326,7 +341,8 @@
       stats: parsed.stats,
       analysed: st.analysed,
       best: toPlain(st.best),
-      recommendations: st.recs.length
+      recommendations: st.recs.length,
+      context: MatchContext.status(MatchContext.keyFromPath(location.pathname))
     };
   }
 
@@ -359,6 +375,7 @@
     if ('debug' in patch) setDebug(patch.debug);
     if (patch.autoAnalyze) scheduleTick();
     if (['autoAnalyze', 'reorderPicks', 'dockOpen', 'dockCollapsed'].some((k) => k in patch)) refreshUI();
+    if ('matchContext' in patch) st.cache.clear(); // le contexte change la requête : on ré-analysera
     if ('stakeAdvice' in patch) {
       stakeState.fp = null;
       scheduleStake();

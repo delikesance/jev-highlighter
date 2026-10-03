@@ -1,6 +1,6 @@
 // Tout le contenu dynamique est écrit via textContent (jamais innerHTML).
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { mode: 'dev', apiKey: '', endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false };
+const DEFAULTS = { mode: 'dev', apiKey: '', endpoint: '', backendUrl: '', autoAnalyze: false, stakeAdvice: true, matchContext: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false };
 const pct = (x) => (typeof x === 'number' ? `${Math.round(x * 100)}%` : '—');
 
 const STATUS_TEXT = {
@@ -42,6 +42,12 @@ function render(s) {
   if (s.status === 'error') setMsg(s.error, true);
   else setMsg(s.error || STATUS_TEXT[s.status] || '', false);
 
+  const c = s.context;
+  const PART = { live: 'live', h2h: 'forme · face-à-face', standings: 'classement' };
+  $('ctx').hidden = !c || c.state === 'none';
+  if (c && c.state !== 'none')
+    $('ctx').textContent = c.state === 'loading' ? 'Contexte du match : chargement…' : `Contexte : ${c.parts.map((k) => PART[k] || k).join(' · ') || 'vide'} (il y a ${c.ageSec} s)`;
+
   const best = s.best;
   $('best').hidden = !best;
   if (best) {
@@ -62,6 +68,7 @@ async function loadSettings() {
   $('auto').checked = s.autoAnalyze;
   $('stake').checked = s.stakeAdvice;
   $('reorder').checked = s.reorderPicks;
+  $('mctx').checked = s.matchContext;
   $('dock').checked = s.dockOpen;
   $('debug').checked = s.debug;
   toggleMode();
@@ -94,6 +101,7 @@ $('save').addEventListener('click', async () => {
 
 $('auto').addEventListener('change', (e) => chrome.storage.local.set({ autoAnalyze: e.target.checked }));
 $('stake').addEventListener('change', (e) => chrome.storage.local.set({ stakeAdvice: e.target.checked }));
+$('mctx').addEventListener('change', (e) => chrome.storage.local.set({ matchContext: e.target.checked }));
 $('reorder').addEventListener('change', (e) => chrome.storage.local.set({ reorderPicks: e.target.checked }));
 $('dock').addEventListener('change', (e) => chrome.storage.local.set({ dockOpen: e.target.checked, dockCollapsed: false }));
 $('debug').addEventListener('change', (e) => chrome.storage.local.set({ debug: e.target.checked }));

@@ -80,3 +80,13 @@ sur la cote est une classe de page (`styles/injected.css`) ; le contenu des bout
 - Polices Sora + JetBrains Mono embarquées (`extension/fonts/`).
 
 Tests : `npm test` (unitaires + tests de fumée jsdom qui exécutent tous les scripts de contenu).
+
+## Contexte du match (match-center)
+Pour que JEV ne juge pas que sur les cotes, l'extension lit la page `<url du match>/match-center` (widgets Sportradar du bookmaker) :
+**Live** (stats du match en cours), **Performances** (probabilité Sportradar, face-à-face, forme par quart-temps, 5 derniers matchs)
+et **Classement** (les deux équipes mises en évidence). Le résultat, compacté (≤ `CONFIG.context.maxChars`), est ajouté à l'état de chaque
+requête (`state.match_context`) ; les instructions demandent à JEV de s'en servir en plus du libellé du marché.
+- **Source active** : un iframe invisible same-origin charge le match-center et on lit ses 3 onglets (le clic ne concerne que cet iframe caché ; aucune action sur la page visible, aucun pari).
+- **Source passive** : si tu ouvres toi-même le match-center, ce qui s'affiche est mémorisé (`chrome.storage.local`, 20 matchs).
+- Rafraîchi au-delà de `CONFIG.context.ttlMs` (3 min). Si le contexte est indisponible (iframe bloqué, widget absent), l'analyse continue sans lui.
+- Interrupteur « Contexte du match » dans le popup ; sélecteurs/parsers dans `src/context.js`.

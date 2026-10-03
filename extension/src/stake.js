@@ -76,6 +76,7 @@
         wallet_eur: ctx.wallet,
         total_odds: ctx.totalOdds,
         selections: ctx.selections,
+        ...(ctx.matchContext ? { match_context: ctx.matchContext } : {}),
         stake_range_eur: [lo, hi],
         round,
         previous_choice: previous || null
