@@ -82,7 +82,7 @@
       identifyRetries: 3, // tentatives d'identification de la nouvelle carte, 1..5
       pollMs: 250, // pas d'interrogation du DOM, ≥ 50
       maxCycles: 60, // nombre max. de cycles SCAN par session, 1..200
-      pauseMs: 5000, // pause entre deux cycles du contrôleur, 1000..60000
+      pauseMs: 30000, // espace les recherches/requêtes Auto, 1000..60000
       stepMs: 1500, // intervalle entre deux transitions du contrôleur (planificateur séquentiel), 500..10000
       maxBets: 5,
       maxLosses: 3,

@@ -192,10 +192,12 @@
       return 'STOPPED';
     }
 
-    async function giveUp(st, href) {
+    async function giveUp(st, href, reason = 'JEV : aucune nouvelle sélection exploitable') {
       await markTried(st, href);
-      await set({ phase: 'SCAN', event: null, pick: null });
-      return 'SCAN';
+      const message = `${reason}. Nouvelle recherche après la pause.`;
+      log(message);
+      await set({ phase: 'PAUSE', event: null, pick: null, message });
+      return 'PAUSE';
     }
 
     const phases = {
@@ -284,7 +286,7 @@
         const key = playKey(st.event, st.pick);
         if ((st.playedKeys || []).includes(key)) { log('déjà joué dans la session', key); return giveUp(st, st.event.href); }
         const stake = deps.ticketSizing ? guard.maxStake(Number.MAX_SAFE_INTEGER) : guard.maxStake(await deps.stakeFor({ event: st.event, pick: st.pick }));
-        if (!(stake > 0)) return giveUp(st, st.event.href);
+        if (!(stake > 0)) return giveUp(st, st.event.href, 'Aucune mise disponible');
         // Avant tout appel à l'exécuteur : événement tried et clé jouée persistés, lastPlaced remis à zéro.
         // execId : identifiant d'exécution persistant (compteur), recopié par l'exécuteur dans pending et lastPlaced.
         const execSeq = (Number.isInteger(st.execSeq) ? st.execSeq : 0) + 1;
@@ -302,7 +304,10 @@
         }
         const pk = st.pick;
         const before = st.dryRun ? null : await tracker.snapshotOngoing();
-        if (!st.dryRun && !Array.isArray(before)) { await stop('suivi des paris indisponible'); return 'STOPPED'; }
+        if (!st.dryRun && !Array.isArray(before)) {
+          await stop('suivi des paris indisponible', { message: 'Aucun pari validé : la page Mes paris ne devient pas lisible. Vérifier sa page chargée avant de réarmer.' });
+          return 'STOPPED';
+        }
         if (!st.dryRun) await set({ before });
         const decision = { marketTitle: pk.marketTitle, window: pk.window, label: pk.label, event: st.event.name,
           analysedOdds: pk.odds, suggestedStake: st.stake, confidence: pk.confidence, dryRun: st.dryRun, execId: st.execId };
@@ -319,10 +324,16 @@
         if (r && r.status === 'placed') { await set({ phase: 'ATTENTE', placedStake: r.stake }); return 'ATTENTE'; }
         if (!r || r.status === 'halt') { await stop((r && r.reason) || 'arrêt de l\'exécuteur'); return 'STOPPED'; }
         const patch = { phase: 'PAUSE', pick: null, event: null, ...cooldown(st, st.event.href) };
-        // Une simulation confirmée n'est pas un pari réel : elle peut être rejouée après réanalyse.
-        if (r.status === 'dry') patch.playedKeys = (st.playedKeys || []).filter((key) => key !== playKey(st.event, st.pick));
+        // Une simulation unique suffit : aucune nouvelle exécution sans réarmement explicite.
+        if (r.status === 'dry') {
+          patch.playedKeys = (st.playedKeys || []).filter((key) => key !== playKey(st.event, st.pick));
+          patch.message = `Simulation terminée : mise ${r.stake} €, aucun pari payé. Le mode réel nécessite de décocher « À blanc » puis de réarmer.`;
+          await stop('simulation à blanc terminée', patch);
+          return 'STOPPED';
+        }
+        patch.message = `Pari non placé : ${r.reason || 'refus sans motif'}. Nouvelle recherche après la pause.`;
         await set(patch);
-        log(r.status === 'dry' ? 'pari à blanc' : 'pari refusé', r.reason);
+        log('pari refusé', r.reason);
         return 'PAUSE';
       },
       async ATTENTE(st) {

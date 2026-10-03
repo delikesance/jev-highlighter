@@ -120,6 +120,7 @@
       log(matchContext ? `Match context ready (${Object.keys(matchContext).join(', ')})` : 'No match context');
     }
 
+    if (!force && st.settings.autoMode && auto.active) return; // contexte terminé après l'armement
     log('Building evaluation request');
     const built = buildRequest(parsed, { pageTitle: document.title, pagePath: location.pathname, matchContext });
     if (!built.questionCount) {
@@ -177,6 +178,7 @@
   // ------------------------------------------------------------------ auto-analyse (MutationObserver)
 
   const tick = async () => {
+    if (st.settings.autoMode && auto.active) return; // un seul pilote automatique des requêtes
     if (/\/match-center\/?$/.test(location.pathname)) {
       // On est sur la page match-center : on mémorise ce qui s'affiche (source passive du contexte).
       if (st.settings.matchContext) MatchContext.ingestDocument(document, MatchContext.keyFromPath(location.pathname));
@@ -226,6 +228,7 @@
   }
 
   async function stakeTick() {
+    if (st.settings.autoMode && auto.active) return;
     if (!st.settings.stakeAdvice) {
       log('Stake advice disabled');
       abortStake();
@@ -378,7 +381,7 @@
   // ------------------------------------------------------------------ mode Auto (expert, désactivé par défaut)
   // autoMode faux => rien ici ne s'exécute. Jamais d'armement automatique : seul le bouton « Armer » du panneau arme.
 
-  const auto = { started: false, rt: null, ui: null, timer: null, running: false, cancelled: false, stop: null };
+  const auto = { started: false, active: false, rt: null, ui: null, timer: null, running: false, cancelled: false, stop: null };
 
   async function startAuto() {
     if (window !== window.top) return; // jamais de runtime Auto dans un sous-cadre
@@ -446,6 +449,7 @@
       let r = 'STOPPED';
       try { r = await rt.controller.step(); } catch (e) { await rt.stop('step : ' + (e && e.message)); }
       auto.running = false;
+      auto.active = r !== 'STOPPED' && r !== 'IDLE';
       refresh();
       if (r !== 'STOPPED' && r !== 'IDLE') schedule();
     }
@@ -455,6 +459,7 @@
       clearTimeout(auto.timer);
       auto.timer = null;
       await rt.stop(reason);
+      auto.active = false;
       refresh();
     };
     auto.ui = A.UI.mount(
@@ -462,15 +467,21 @@
         stop: auto.stop,
         arm: async (phrase, o) => {
           if (!st.settings.autoMode) return;
+          auto.active = true;
+          abortInflight(); abortStake();
           await rt.controller.arm(phrase, o);
           const s = await status();
+          auto.active = !s.stopped && s.phase !== 'STOPPED' && s.phase !== 'IDLE';
           auto.ui.refresh(s);
           if (s.phase === 'ARMED' && !s.stopped) { auto.cancelled = false; schedule(); }
         }
       },
       { doc: document, getStatus: status }
     );
+    auto.active = true;
     const r = await rt.controller.init();
+    auto.active = r !== 'STOPPED' && r !== 'IDLE';
+    if (auto.active) { abortInflight(); abortStake(); }
     refresh();
     if (r !== 'STOPPED' && r !== 'IDLE') schedule();
   }

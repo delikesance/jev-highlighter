@@ -84,3 +84,17 @@ Status : DONE_WITH_CONCERNS (site réel et API distante non exécutés).
 - Validation uniquement jsdom/faux JEV : pas de preuve de rendu Angular, réponses API, suivi ou placement sur le vrai compte. Une sélection répétée dans plusieurs emplacements DOM peut toujours être refusée comme ambiguë par l'exécuteur.
 - Sports actuellement pris en charge : football/basketball avec horloge active. Le choix JEV ne supprime pas les limites existantes : cote, confiance, délai minimal, exposition et fin de session (5 paris maximum). La mise JEV reste plafonnée par les limites financières existantes ; la boucle n'est pas illimitée.
 - Aucun modèle ne garantit un bon pari ni un gain. Aucune mise réelle effectuée dans cette validation. Pas de push, tag ou release dans cette intervention.
+
+## Correction anti-flood et diagnostic du placement (2026-10-04)
+
+Status : DONE_WITH_CONCERNS pour l'anti-flood ; placement sur site réel toujours bloqué par la lecture de Mes paris.
+
+- L'absence de pick passait directement d'ANALYSE à SCAN : passage désormais par PAUSE, avec motif visible. Pause par défaut 30 secondes au lieu de 5. Refus de l'exécuteur affiché dans le panneau.
+- Une simulation réussie s'arrête après un cycle, sans paiement ni nouveau questionnaire. Le passage réel reste un choix explicite au réarmement ; aucun changement automatique de dryRun.
+- Les assistants automatiques d'analyse et de mise sont suspendus pendant une session Auto active. Les requêtes anciennes sont annulées à l'armement/reprise ; un contexte tardif ne relance pas une analyse automatique. Hors session Auto, fonctionnement inchangé.
+- Preuve RED : `node --test tests/auto-controller.test.js tests/auto-flow.test.js` → `pass 0`, `fail 2`. Tests modifiés pour exiger PAUSE et arrêt après simulation. Le smoke concurrent a également échoué avant correction : `3 !== 0` requêtes parasites.
+- Preuve GREEN : `node --test tests/*.test.js` → `tests 20`, `pass 20`, `fail 0`, 16855 ms. Parcours intégré réel : mise 0,40 €, un clic Parier, confirmation, suivi, retour live. Parcours sans confirmation : STOPPED, pending conservé, dix step supplémentaires sans second clic. Tous ces paiements sont simulés par le faux site, jamais réels.
+- L'attente du smoke dépasse le debounceMaxWait pour reproduire les requêtes concurrentes ; contrôle sans Auto démontre que les assistants restent opérationnels.
+- Auto-revue : aucun contournement des limites financières, de pending ou de confirmation. `content.js` : 512 lignes, sous 550 ; tests statiques verts. Fichiers : controller.js, config.js, content.js, auto-controller.test.js, auto-flow.test.js, smoke.test.js, ce rapport.
+- Pièce utilisateur `ef556c77-959b-4904-8106-c5884da865ac/Texte collé.txt`, lignes 2498–2499 : `tracker: snapshot impossible Mes paris : délai dépassé (page)` puis `ARRÊT suivi des paris indisponible`. L'arrêt survient avant executor.place(), donc avant saisie/validation réelle. L'erreur n'est pas un timeout JEV dans cette capture. Les erreurs analytics ERR_BLOCKED_BY_CLIENT présentes ailleurs sont distinctes.
+- Root cause restant à confirmer : makeMyBetsDoc attend le composant `my-bets-page` dans une iframe `/mes-paris`. La capture ne donne pas le DOM réellement rendu ni la raison de son absence (navigation, composant changé, iframe). Le HTML de `/mes-paris` chargé est nécessaire pour corriger cette détection sans inventer de sélecteur ni désactiver le suivi à l'aveugle.
