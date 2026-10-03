@@ -16,9 +16,15 @@ const MARKETS = [
 function fakeStore(init = {}) {
   let s = { ...init };
   return {
-    sets: [],
+    sets: [], crashWhen: null, dead: false,
     async get() { return { ...s }; },
-    async set(p) { this.sets.push(p); s = { ...s, ...p }; },
+    // crashWhen(patch) vrai : le patch est appliqué puis la page « meurt » (écritures suivantes perdues).
+    async set(p) {
+      if (this.dead) throw new Error('page morte');
+      this.sets.push(p); s = { ...s, ...p };
+      if (this.crashWhen && this.crashWhen(p)) { this.dead = true; this.crashWhen = null; throw new Error('crash'); }
+    },
+    revive() { this.dead = false; },
     async stopFlag() { return !!s.stopped; },
     raw: () => s
   };
@@ -65,16 +71,16 @@ function setup(o = {}) {
         if (v.verdict === 'ARRET') return { status: 'halt', reason: v.reason };
         if (v.verdict !== 'OUI') return { status: 'refused', reason: v.reason };
         if (d.dryRun) return { status: 'dry', stake, odds: d.analysedOdds };
-        await store.set({ pending: { stake } });
         guard.reserve(stake);
+        await store.set({ pending: { stake, reservedInSnap: true }, guardSnap: guard.snapshot() });
         if (o.crashInPlace) throw new Error('rechargement pendant place');
         guard.recordPlaced();
-        await store.set({ pending: null });
+        await store.set({ pending: null, lastPlaced: { marketTitle: d.marketTitle, window: d.window, label: d.label, event: d.event, stake, at: deps.now() }, guardSnap: guard.snapshot() });
         return { status: 'placed', stake, odds: d.analysedOdds };
       })
     }),
     navigate: (h) => { navs.push(h); world.path = new URL(h).pathname; },
-    sleep: async () => {}, now: () => 0, log: () => {}
+    sleep: async () => {}, now: () => (world.clock = (world.clock || 0) + 1), log: () => {}
   };
   Object.assign(deps, o.deps || {});
   const ctl = Controller.createController(deps);
@@ -181,14 +187,15 @@ test('reprise avec pending → STOPPED, place jamais appelé, réserve +1, pas d
   assert.equal(store.raw().session.startBalance, 100);
 });
 
-test('crash pendant place → rechargement compte le pending une seule fois', async () => {
+test('(b) crash juste après l\'écriture de pending → init compte le pari une seule fois', async () => {
   const store = fakeStore();
   const world = { wallet: 100, walletReads: 0, path: '/live' };
-  let t = setup({ store, world, crashInPlace: true });
+  let t = setup({ store, world });
   await t.ctl.init(); await t.ctl.arm(...ARM);
+  store.crashWhen = (p) => p.pending && p.pending.stake;
   await runUntil(t.ctl, 10, 'STOPPED');
-  // simule le rechargement survenu au milieu de place() : état d'avant l'exception
-  await store.set({ stopped: false, phase: 'EXEC' });
+  store.revive();
+  assert.equal(store.raw().phase, 'EXEC');
   t = setup({ store, world });
   assert.equal(await t.ctl.init(), 'STOPPED');
   assert.equal(t.guard.state.placed, 1);
@@ -224,14 +231,14 @@ test('stopped persisté → reste STOPPED', async () => {
 test('5e pari → STOPPED limite de session', async () => {
   const t = await armed();
   let s;
-  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [] }); }
+  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [] }); }
   assert.equal(s, 'STOPPED');
   assert.equal(t.guard.state.placed, 5);
   assert.match(t.store.raw().reason, /limite de session/);
 });
 
 test('rechargement à chaque step : le 6e pari n\'est jamais tenté', async () => {
-  const r = await reloadingRun({}, 200, (store) => store.set({ tried: [] }));
+  const r = await reloadingRun({}, 200, (store) => store.set({ tried: [], playedKeys: [] }));
   assert.equal(r.s, 'STOPPED');
   assert.equal(r.all.place, 5);
   assert.equal(r.store.raw().bets.length, 5);
@@ -241,7 +248,7 @@ test('rechargement à chaque step : le 6e pari n\'est jamais tenté', async () =
 });
 
 test('rechargements : 3 défaites → STOPPED', async () => {
-  const r = await reloadingRun({ resolve: () => 'lost' }, 200, (store) => store.set({ tried: [] }));
+  const r = await reloadingRun({ resolve: () => 'lost' }, 200, (store) => store.set({ tried: [], playedKeys: [] }));
   assert.equal(r.s, 'STOPPED');
   assert.match(r.store.raw().reason, /défaites/);
   assert.equal(r.t.guard.state.consecutiveLosses, 3);
@@ -249,7 +256,7 @@ test('rechargements : 3 défaites → STOPPED', async () => {
 
 test('rechargements : perte > 50 % du solde de départ → refus, solde de départ non relu', async () => {
   let n = 0;
-  const r = await reloadingRun({ stake: 10, resolve: () => 'won' }, 200, (store, world) => { n++; world.wallet = 55; return store.set({ tried: [] }); });
+  const r = await reloadingRun({ stake: 10, resolve: () => 'won' }, 200, (store, world) => { n++; world.wallet = 55; return store.set({ tried: [], playedKeys: [] }); });
   assert.equal(r.world.walletReads, 1);
   assert.equal(r.store.raw().session.startBalance, 100);
   assert.equal(r.all.place >= 1, true);
@@ -327,7 +334,7 @@ test('pari sans référence : resolveByBalance, jamais resolve(null), réserve l
 test('3 défaites résolues → STOPPED, réserve libérée', async () => {
   const t = await armed({ resolve: () => 'lost' });
   let s;
-  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [] }); }
+  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [] }); }
   assert.equal(s, 'STOPPED');
   assert.equal(t.guard.state.consecutiveLosses, 3);
   assert.equal(t.guard.state.reserved, 0);
@@ -355,7 +362,7 @@ test('ré-entrance : deux step() concurrents → un seul place()', async () => {
 test('limite de cycles → STOPPED', async () => {
   const t = await armed({ cfg: { maxCycles: 2 }, answers: [] });
   let s;
-  for (let i = 0; i < 40; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [] }); }
+  for (let i = 0; i < 40; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [] }); }
   assert.equal(s, 'STOPPED');
   assert.match(t.store.raw().reason, /limite de cycles/);
 });
@@ -370,4 +377,78 @@ test('validateConfig : pauseMs borné', () => {
   assert.equal(CONFIG.auto.maxCycles, 60);
   assert.equal(Guard.validateConfig({ ...CONFIG.auto, pauseMs: 500 }).ok, false);
   assert.equal(Guard.validateConfig({ ...CONFIG.auto, pauseMs: 70000 }).ok, false);
+});
+
+async function toCrash(pred, o = {}) {
+  const store = fakeStore();
+  const world = { wallet: 100, walletReads: 0, path: '/live' };
+  let t = setup({ store, world, ...o });
+  await t.ctl.init(); await t.ctl.arm(...ARM);
+  store.crashWhen = pred;
+  const s = await runUntil(t.ctl, 10, 'STOPPED');
+  store.revive();
+  return { store, world, s, first: t };
+}
+
+test('(a) crash juste après {pending:null, lastPlaced, guardSnap} → compté une fois, EXEC non rejoué', async () => {
+  const { store, world } = await toCrash((p) => p.pending === null && p.lastPlaced);
+  assert.equal(store.raw().phase, 'EXEC');
+  const t = setup({ store, world });
+  assert.equal(await t.ctl.init(), 'EXEC');
+  assert.equal(t.guard.state.placed, 1);
+  assert.equal(t.guard.state.reserved, 5);
+  assert.equal(await t.ctl.step(), 'ATTENTE');
+  assert.ok(!t.calls.includes('place'));
+  assert.equal(await t.ctl.step(), 'PAUSE');
+  assert.equal(store.raw().bets.length, 1);
+  assert.equal(store.raw().bets[0].stake, 5);
+  assert.equal(t.guard.state.placed, 1);
+});
+
+test('(a bis) lastPlaced adopté sans snapshot « before » → pari sans référence, prevBalance connu', async () => {
+  const { store, world } = await toCrash((p) => p.pending === null && p.lastPlaced);
+  await store.set({ before: null });
+  const t = setup({ store, world });
+  await t.ctl.init();
+  assert.equal(await t.ctl.step(), 'PAUSE');
+  assert.ok(!t.calls.includes('place'));
+  const b = store.raw().bets[0];
+  assert.equal(b.ref, null);
+  assert.equal(b.prevBalance, 100);
+});
+
+test('(c) crash avant tout (entrée en EXEC) → rien compté, rejeu autorisé', async () => {
+  const { store, world } = await toCrash((p) => p.phase === 'EXEC');
+  const t = setup({ store, world });
+  assert.equal(await t.ctl.init(), 'EXEC');
+  assert.equal(t.guard.state.placed, 0);
+  assert.equal(t.guard.state.reserved, 0);
+  assert.equal(await t.ctl.step(), 'ATTENTE');
+  assert.equal(t.calls.filter((c) => c === 'place').length, 1);
+  assert.equal(t.guard.state.placed, 1);
+});
+
+test('(c bis) pending présent en EXEC → STOPPED, pas de place', async () => {
+  const store = fakeStore({ phase: 'EXEC', ownerTabId: 7, session: { startBalance: 100 }, pending: { stake: 5, reservedInSnap: true }, guardSnap: { placed: 0, reserved: 5, inFlight: 1, consecutiveLosses: 0 } });
+  const t = setup({ store });
+  assert.equal(await t.ctl.init(), 'STOPPED');
+  assert.equal(t.guard.state.placed, 1);
+  assert.equal(t.guard.state.reserved, 5);
+  await t.ctl.step();
+  assert.ok(!t.calls.includes('place'));
+});
+
+test('(d) même (événement, marché, fenêtre, libellé) deux fois → second refusé, événement tried avant place', async () => {
+  const t = await armed();
+  for (let i = 0; i < 5; i++) await t.ctl.step();
+  assert.equal(t.store.raw().phase, 'EXEC');
+  assert.deepEqual(t.store.raw().tried, ['/football/match-1']);
+  for (let i = 0; i < 3; i++) await t.ctl.step();
+  await t.store.set({ tried: [] });
+  let s;
+  for (let i = 0; i < 6; i++) { s = await t.ctl.step(); if (s === 'GARDE' || s === 'EXEC') break; }
+  assert.equal(s, 'GARDE');
+  assert.equal(await t.ctl.step(), 'SCAN');
+  assert.equal(t.calls.filter((c) => c === 'place').length, 1);
+  assert.equal(t.store.raw().playedKeys.length, 1);
 });
