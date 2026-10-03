@@ -89,6 +89,15 @@ function setup(o = {}) {
 
 const ARM = ['PARIER AUTO', { dryRun: false, noManualBets: true }];
 
+test('SCAN explique les matchs déjà tentés au lieu de prétendre qu’aucun match n’est en cours', async () => {
+  const t = await armed();
+  await t.store.set({ phase: 'SCAN', tried: [EVENT.href] });
+  assert.equal(await t.ctl.step(), 'CHOIX');
+  assert.equal(await t.ctl.step(), 'PAUSE');
+  assert.match(t.store.raw().message, /1 déjà tenté/);
+  assert.equal(t.store.raw().scanSummary.total, 1);
+});
+
 test('ANALYSE attend les marchés après un rendu Angular tardif', async () => {
   let reads = 0;
   let clock = 0;
