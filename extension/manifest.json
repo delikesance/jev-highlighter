@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "JEV Highlighter",
+  "version": "0.1.0",
+  "description": "Analyse les marchés visibles sur la page avec JEV et met en évidence les sélections préférées. Ne place jamais de pari automatiquement.",
+  "minimum_chrome_version": "110",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://api.typesafe.ai/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://localhost/*"],
+      "js": [
+        "src/config.js",
+        "src/utils.js",
+        "src/storage.js",
+        "src/parser.js",
+        "src/jev.js",
+        "src/matcher.js",
+        "src/highlighter.js",
+        "src/content.js"
+      ],
+      "css": ["styles/injected.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "JEV Highlighter",
+    "default_popup": "popup/popup.html"
+  }
+}
