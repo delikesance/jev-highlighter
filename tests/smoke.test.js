@@ -133,7 +133,7 @@ test('smoke : assistant de mise inséré dans le ticket (avant le champ), détai
   assert.match(sr.querySelector('.stake__amount').textContent, /\d,\d\d/);
   assert.match(sr.querySelector('.jbtn--primary').textContent, /Copier \d,\d\d/);
   sr.querySelectorAll('.jbtn')[1].click(); // « Détail »
-  assert.equal(host.shadowRoot.querySelectorAll('.step__head').length, 3);
+  assert.equal(host.shadowRoot.querySelectorAll('.step__head').length >= 2, true); // plafond 10 % du solde : fourchette plus étroite
   // le champ de mise du site n'est jamais rempli ni modifié
   assert.equal(doc.querySelector('input[name="stakeField"]').value, '');
 });

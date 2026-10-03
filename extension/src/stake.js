@@ -110,8 +110,9 @@
    * @returns {Promise<{none:true,reason?:string}|{amount:number, potentialWinnings:number, range:number[], rounds:object[]}>}
    */
   async function suggestStake(ctx, ask) {
-    const { cells: cellCount, maxRounds, maxFractionOfWallet, minStake } = CONFIG.stake;
-    const cap = r2(ctx.wallet * maxFractionOfWallet);
+    const { cells: cellCount, maxRounds, maxFractionOfWallet, oddsRiskRef, minStake } = CONFIG.stake;
+    const riskFactor = ctx.totalOdds > oddsRiskRef ? oddsRiskRef / ctx.totalOdds : 1;
+    const cap = r2(Math.min(ctx.wallet * maxFractionOfWallet * riskFactor, ctx.wallet));
     if (!(cap >= minStake)) return { none: true, reason: 'wallet-too-low' };
 
     let lo = 0;
