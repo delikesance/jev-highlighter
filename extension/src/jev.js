@@ -162,7 +162,10 @@
     const retryAfter = Number(res.headers.get('retry-after'));
     const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : null;
     if (res.status === 401 || res.status === 403) throw new JevError('unauthorized', 'Clé API refusée', { status: res.status });
-    if (res.status === 422) throw new JevError('validation', 'Requête invalide (422)', { status: 422 });
+    if (res.status === 422) {
+      const detail = (await res.text().catch(() => '')).slice(0, 300);
+      throw new JevError('validation', `Requête invalide (422) ${detail}`.trim(), { status: 422 });
+    }
     if (res.status === 429) throw new JevError('rate_limited', 'Limite de débit atteinte (429)', { status: 429, retryAfterMs });
     if (res.status === 529) throw new JevError('overloaded', 'Service surchargé (529)', { status: 529, retryAfterMs });
     throw new JevError('http', `Erreur HTTP ${res.status}`, { status: res.status });
