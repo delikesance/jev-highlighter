@@ -81,6 +81,15 @@ test('readSlip: suffixe EUR directement dans le composant de cote ignoré', () =
   d.querySelector('betting-slip-odds-field').append('EUR');
   assert.deepStrictEqual(R.readSlip(d).unknown, []);
 });
+test('readSlip: EUR fragmenté par Angular est accepté partout dans le ticket, pas une alerte contenant EUR', () => {
+  const d = load('fixture-slip-one.html');
+  const currency = d.createElement('span');
+  currency.append(d.createTextNode('EU'), d.createTextNode('R'));
+  d.querySelector('.progressiveBettingSlip_cardContent').appendChild(currency);
+  assert.deepStrictEqual(R.readSlip(d).unknown, []);
+  currency.append(' indisponible');
+  assert.deepStrictEqual(R.readSlip(d).unknown, ['EUR indisponible']);
+});
 test('readWallet', () => {
   assert.strictEqual(R.readWallet(load('fixture-slip-one.html')), 6.53);
   assert.strictEqual(R.readWallet(new JSDOM('<p></p>').window.document), null);
