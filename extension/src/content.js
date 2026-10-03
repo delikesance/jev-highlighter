@@ -172,6 +172,7 @@
 
   async function stakeTick() {
     if (!st.settings.stakeAdvice) {
+      log('Stake advice disabled');
       abortStake();
       stakeState.fp = null;
       StakeUI.hide();
@@ -180,6 +181,9 @@
     const wallet = readWallet(document);
     const slip = readSlip(document);
     if (!wallet || !slip.selections.length || !slip.totalOdds || !slip.stakeInput) {
+      log(
+        `Stake skipped: wallet=${wallet} selections=${slip.selections.length} totalOdds=${slip.totalOdds} stakeInput=${!!slip.stakeInput}`
+      );
       abortStake();
       stakeState.fp = null;
       StakeUI.hide();

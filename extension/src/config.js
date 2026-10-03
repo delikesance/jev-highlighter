@@ -31,7 +31,7 @@
       // À CONFIRMER : sélecteur d'un marché suspendu (valeur supposée).
       suspended: '[data-qa="market-suspended"], .is-suspended',
       // Solde du portefeuille (en-tête du site)
-      wallet: '.header_walletBalance bc-header-animated-balance',
+      wallet: '.header_walletBalance bc-header-animated-balance, [data-qa="commonDeposit"] bc-header-animated-balance, .header_wallet bc-header-animated-balance, bc-header-animated-balance',
       // Ticket de pari
       slip: {
         card: 'betting-slip-selection-card',
@@ -40,7 +40,7 @@
         market: '.progressiveBettingSlip_cardMarketValue', // le marché (ex. "Résultat du match")
         odds: 'betting-slip-odds-field .btn_label',
         footerOdds: 'betting-slip-footer-odds .btn_label',
-        stakeInput: 'input[name="stakeField"]'
+        stakeInput: 'input[name="stakeField"], betting-slip-stake-field input, input[placeholder="Mise"]'
       }
     },
 
