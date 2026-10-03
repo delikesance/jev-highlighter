@@ -89,6 +89,32 @@ function setup(o = {}) {
 
 const ARM = ['PARIER AUTO', { dryRun: false, noManualBets: true }];
 
+test('match sans pick : réanalyse après 30 secondes, pas exclusion permanente', async () => {
+  let time = 0;
+  const t = await armed({ answers: [], now: () => time });
+  await t.ctl.step(); await t.ctl.step(); await t.ctl.step(); await t.ctl.step();
+  assert.equal(t.store.raw().retryAfter[EVENT.href], 30000);
+  await t.ctl.step(); await t.ctl.step();
+  assert.equal(t.store.raw().events.length, 0);
+  time = 30001;
+  await t.store.set({ phase: 'SCAN' });
+  await t.ctl.step();
+  assert.equal(t.store.raw().events.length, 1);
+});
+
+test('JEV : meilleur score choisi parmi les marchés éligibles non joués', async () => {
+  const second = { ...MARKETS[0], id: 'm3', title: 'Prochain buteur' };
+  const t = await armed({ markets: [MARKETS[0], second], answers: [
+    { marketId: 'm1', choice: 'A', confidence: 0.8, jevScore: 0.65 },
+    { marketId: 'm3', choice: 'A', confidence: 0.7, jevScore: 0.9 }
+  ] });
+  await t.ctl.step(); await t.ctl.step(); await t.ctl.step(); await t.ctl.step();
+  assert.equal(t.store.raw().pick.marketId, 'm3');
+  await t.store.set({ phase: 'ANALYSE', playedKeys: [`${EVENT.href}|Prochain buteur||A`] });
+  assert.equal(await t.ctl.step(), 'GARDE');
+  assert.equal(t.store.raw().pick.marketId, 'm1');
+});
+
 test('SCAN explique les matchs déjà tentés au lieu de prétendre qu’aucun match n’est en cours', async () => {
   const t = await armed();
   await t.store.set({ phase: 'SCAN', tried: [EVENT.href] });
@@ -391,6 +417,19 @@ test('dryRun n\'incrémente pas placed', async () => {
   assert.equal((t.store.raw().bets || []).length, 0);
 });
 
+test('dryRun : même marché simulé à nouveau après le délai, sans réserve financière', async () => {
+  let time = 0;
+  const t = await armed({ now: () => time, arm: ['PARIER AUTO', { dryRun: true, noManualBets: true }] });
+  for (let i = 0; i < 8; i++) await t.ctl.step();
+  assert.equal(t.calls.filter((c) => c === 'place').length, 1);
+  assert.deepEqual(t.store.raw().playedKeys, []);
+  time = 30001;
+  for (let i = 0; i < 8; i++) await t.ctl.step();
+  assert.equal(t.calls.filter((c) => c === 'place').length, 2);
+  assert.equal(t.guard.state.placed, 0);
+  assert.equal(t.guard.state.reserved, 0);
+});
+
 test('ré-entrance : deux step() concurrents → un seul place()', async () => {
   const t = await armed();
   for (let i = 0; i < 5; i++) await t.ctl.step();
@@ -481,7 +520,7 @@ test('(c bis) pending présent en EXEC → STOPPED, pas de place', async () => {
   assert.ok(!t.calls.includes('place'));
 });
 
-test('(d) même (événement, marché, fenêtre, libellé) deux fois → second refusé, événement tried avant place', async () => {
+test('(d) même pari réel filtré dès ANALYSE, aucun second place()', async () => {
   const t = await armed();
   for (let i = 0; i < 5; i++) await t.ctl.step();
   assert.equal(t.store.raw().phase, 'EXEC');
@@ -489,9 +528,11 @@ test('(d) même (événement, marché, fenêtre, libellé) deux fois → second 
   for (let i = 0; i < 3; i++) await t.ctl.step();
   await t.store.set({ tried: [] });
   let s;
-  for (let i = 0; i < 6; i++) { s = await t.ctl.step(); if (s === 'GARDE' || s === 'EXEC') break; }
-  assert.equal(s, 'GARDE');
-  assert.equal(await t.ctl.step(), 'SCAN');
+  for (let i = 0; i < 6; i++) {
+    s = await t.ctl.step();
+    if (t.calls.filter((c) => c === 'analyze').length === 2) break;
+  }
+  assert.equal(s, 'SCAN');
   assert.equal(t.calls.filter((c) => c === 'place').length, 1);
   assert.equal(t.store.raw().playedKeys.length, 1);
 });
