@@ -38,3 +38,18 @@ test('parseMoney', () => {
   assert.strictEqual(parseMoney(''), null);
   assert.strictEqual(parseMoney('abc'), null);
 });
+
+test('fix round 1', () => {
+  const w = { startSec: 1800, endSec: 2099 };
+  assert.strictEqual(leadSeconds(parseClock("45+2' • MT 1"), null), -120);
+  assert.strictEqual(leadSeconds(parseClock("45+2' • MT 1"), w), 1800 - 2820);
+  assert.strictEqual(leadSeconds(parseClock("40' • MT 1"), w), -600);
+  assert.strictEqual(leadSeconds(parseClock('7:41 • Q1'), w), null);
+  assert.strictEqual(parseMoney('1.234,50 \u20ac'), null);
+  assert.strictEqual(parseMoney('1,234.50'), null);
+  assert.strictEqual(parseMoney('1\u00a0234,50\u00a0\u20ac'), 1234.5);
+  assert.strictEqual(parseMoney('1\u202f234,50\u202f\u20ac'), 1234.5);
+  assert.strictEqual(parseClock('27\u2019 • MT 1').elapsedSec, 1620);
+  assert.strictEqual(parseClock('27\u2032 • MT 1').elapsedSec, 1620);
+  assert.strictEqual(parseWindow('35:00 - 30:00'), null);
+});
