@@ -10,7 +10,7 @@
     maxOddsCeil: 6,
     maxDriftPct: 5,
     minLeadSec: 60,
-    minConfidence: 0.5,
+    minConfidence: 0, // la confiance d'un choice mesure la concentration de la distribution, pas la qualité du pari : seuil désactivé par défaut
     confirmTimeoutMs: 15000,
     hiddenTabMs: 10000
   });
@@ -140,7 +140,7 @@
       if (!(drift <= c.maxDriftPct)) return no('dérive de cote trop forte');
       if (p.suspended !== false) return no('marché suspendu ou état inconnu');
       if (!(num(p.leadSec) && p.leadSec >= c.minLeadSec)) return no('temps restant trop court');
-      if (!(num(p.confidence) && p.confidence >= c.minConfidence)) return no('confiance JEV insuffisante');
+      if (c.minConfidence > 0 && !(num(p.confidence) && p.confidence >= c.minConfidence)) return no('confiance JEV insuffisante');
       return { verdict: 'OUI', reason: 'ok' };
     }
 
