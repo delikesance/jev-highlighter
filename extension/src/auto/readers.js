@@ -131,7 +131,9 @@
   function readMyBets(doc) {
     const m = (card, qa) => { const e = card.querySelector(`[data-qa="${qa}"]`); return e ? Clock.parseMoney(txt(e)) : null; };
     return Array.from(doc.querySelectorAll('bet-card')).map((c) => {
-      const cls = c.className || '';
+      // Sur le vrai site, l'identifiant et les classes d'état sont sur le <div class="betCard"> interne ; les anciennes fixtures les portaient sur <bet-card>.
+      const box = c.querySelector('.betCard') || c;
+      const cls = `${c.className || ''} ${box.className || ''}`;
       const tag = txt(c.querySelector('[data-qa="bet-card-status-tag"]'));
       let status = /\bis-ended\b/.test(cls) ? 'unknown' : 'ongoing';
       if (/\bis-lost\b/.test(cls) || /perdu/i.test(tag)) status = 'lost';
@@ -139,8 +141,9 @@
       const ref = c.querySelector('[data-qa="bet-card-reference"]');
       const date = c.querySelector('.betCard_date');
       return {
-        id: c.getAttribute('data-qa') || '',
-        reference: ref ? txt(ref) || null : null,
+        id: box.getAttribute('data-qa') || c.getAttribute('data-qa') || '',
+        // « Réf 6ac1… » sur le site : on ne garde que l'identifiant.
+        reference: ref ? txt(ref).replace(/^R[ée]f\.?\s*/i, '') || null : null,
         stake: m(c, 'bet-card-stake'),
         winnings: m(c, 'bet-card-winnings'),
         status,
