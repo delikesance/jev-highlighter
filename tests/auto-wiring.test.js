@@ -77,7 +77,7 @@ function factory(o = {}) {
   const made = [];
   const fn = (doc, url) => {
     const el = doc.createElement('iframe');
-    const inner = o.never ? null : new JSDOM(fx(o.file || 'fixture-mybets-ongoing.html'), { url: ORIGIN + '/mes-paris' }).window.document;
+    const inner = o.never ? null : new JSDOM(fx(o.file || 'fixture-mybets-ongoing.html'), { url: ORIGIN + '/my-bets' }).window.document;
     Object.defineProperty(el, 'contentDocument', { get: () => (el.isConnected ? inner : null) });
     made.push({ el, url, inner });
     return el;
@@ -107,7 +107,7 @@ test('getMyBetsDoc : doc frais, bon filtre, ancien iframe retiré, un seul vivan
   assert.equal(f.made[0].el.isConnected, false);
   assert.equal(doc.querySelectorAll('iframe').length, 1);
   assert.deepEqual(filters, ['ended']); // « en cours » déjà actif : pas de clic
-  assert.equal(f.made[1].url, ORIGIN + '/mes-paris');
+  assert.equal(f.made[1].url, ORIGIN + '/my-bets');
   const el = f.made[1].el;
   assert.equal(el.getAttribute('aria-hidden'), 'true');
   assert.equal(el.style.position, 'fixed');
@@ -282,7 +282,7 @@ test('createRuntime : init/arm/step SCAN avec modules réels, une seule now', as
 
 test('config : myBetsPath / myBetsWaitMs validés', () => {
   const Guard = require('../extension/src/auto/guard');
-  assert.equal(CONFIG.auto.myBetsPath, '/mes-paris');
+  assert.equal(CONFIG.auto.myBetsPath, '/my-bets');
   assert.equal(CONFIG.auto.myBetsWaitMs, 10000);
   for (const p of ['mes-paris', '//evil.com', '/a\\b', 'javascript:x', '/a:b', 3]) {
     assert.equal(Guard.validateConfig({ ...CONFIG.auto, myBetsPath: p }).ok, false, String(p));

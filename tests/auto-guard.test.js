@@ -252,7 +252,7 @@ test('restauration placed > maxBets → check refuse', () => {
   assert.equal(g.check(good()).verdict, 'NON');
 });
 test('myBetsPath / myBetsWaitMs : défauts valides, valeurs dangereuses refusées', () => {
-  assert.strictEqual(CONFIG.auto.myBetsPath, '/mes-paris');
+  assert.strictEqual(CONFIG.auto.myBetsPath, '/my-bets');
   for (const p of ['mes-paris', '//evil.com', '/a\\b', 'https://x', '/a:b', '', 3]) assert.equal(Guard.validateConfig({ ...base(), myBetsPath: p }).ok, false, String(p));
   for (const w of [0, 20001, NaN]) assert.equal(Guard.validateConfig({ ...base(), myBetsWaitMs: w }).ok, false, String(w));
   assert.equal(Guard.validateConfig({ ...base(), myBetsWaitMs: 20000 }).ok, true);
