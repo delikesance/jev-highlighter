@@ -435,13 +435,15 @@
       // `get` (et non `peek`) : charge les stats si elles ne sont pas encore en mémoire ; ne lève jamais.
       const matchContext = matchKey && st.settings.matchContext ? await MatchContext.get(matchKey) : null;
       alog('JEV : choix du pari', { markets: markets.length, hasContext: !!matchContext });
-      return A.Decisions.choosePick(markets, { event: ctx && ctx.event, match_context: matchContext, session: await sessionState() }, askJev);
+      return A.Decisions.choosePick(markets, { event: ctx && ctx.event, match_context: matchContext, session: await sessionState() }, askJev,
+        { minOdds: CONFIG.auto.minOdds, maxOdds: CONFIG.auto.maxOdds });
     }
     async function stakeFromTicket({ slip, wallet, decision }) {
       if (typeof wallet !== 'number' || !(slip.odds > 0)) return null;
       alog('JEV : choix de la mise', { wallet, odds: slip.odds });
       const ctx = {
         wallet,
+        allowNone: false, // mode Auto : une mise est toujours choisie (plafonds du guard inchangés)
         totalOdds: slip.odds,
         selections: [{ event: slip.event, market: slip.market, selection: slip.selection, odds: slip.odds,
           jev_preference: decision.jevScore == null ? null : decision.jevScore, jev_confidence: decision.confidence }],

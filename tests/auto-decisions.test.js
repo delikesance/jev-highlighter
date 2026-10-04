@@ -23,7 +23,8 @@ test('JEV choisit une sélection globale sans filtre Fast et reçoit les cotes',
   assert.equal(body.state.selections[1].odds, 3);
   assert.equal(picks[0].choice, 'B');
   assert.equal(picks[0].marketId, 'm');
-  assert.deepEqual(await D.choosePick(markets, {}, async () => ({ auto_pick: { choice: 'none' } })), []);
+  assert.ok(!('none' in body.questions.auto_pick.criteria), 'aucune option none');
+  await assert.rejects(D.choosePick(markets, {}, async () => ({ auto_pick: { choice: 'none' } })), /inconnu/);
 });
 
 test('choosePick : objectif profit, probabilité implicite, marge et session transmis à JEV', async () => {
@@ -31,11 +32,12 @@ test('choosePick : objectif profit, probabilité implicite, marge et session tra
     { name: 'A', odds: 1.5, available: true }, { name: 'B', odds: 3, available: true }, { name: 'C', odds: 9, available: false }
   ] }];
   let body;
-  await D.choosePick(markets, { session: { wallet_eur: 50 } }, async (b) => { body = b; return { auto_pick: { choice: 'none' } }; });
+  await D.choosePick(markets, { session: { wallet_eur: 50 } }, async (b) => { body = b; return { auto_pick: { choice: 'pick_0' } }; });
   const q = body.questions.auto_pick;
   assert.match(q.instructions, /faire croître/);
   assert.match(q.instructions, /cote basse n’est pas un avantage/);
-  assert.match(q.criteria.none, /ne pas parier/);
+  assert.match(q.instructions, /obligatoirement/);
+  assert.ok(!('none' in q.criteria));
   assert.equal(body.state.selections.length, 2, 'option indisponible exclue');
   assert.equal(body.state.selections[0].implied_probability_pct, 66.7);
   assert.equal(body.state.selections[1].implied_probability_pct, 33.3);
@@ -53,16 +55,17 @@ test('choosePick : jevScore tiré des probabilités, confidence conservée', asy
 test('choosePick : au plus 250 options envoyées (limite choice)', async () => {
   const options = Array.from({ length: 300 }, (_, i) => ({ name: 'o' + i, odds: 2 + i / 100, available: true }));
   let body;
-  await D.choosePick([{ id: 'm', title: 'T', options }], {}, async (b) => { body = b; return { auto_pick: { choice: 'none' } }; });
-  assert.equal(Object.keys(body.questions.auto_pick.criteria).length, 251);
+  await D.choosePick([{ id: 'm', title: 'T', options }], {}, async (b) => { body = b; return { auto_pick: { choice: 'pick_0' } }; });
+  assert.equal(Object.keys(body.questions.auto_pick.criteria).length, 250);
   assert.equal(body.state.selections.length, 250);
 });
 
-test('chooseEvent : objectif profit, cotes principales et session, none possible', async () => {
+test('chooseEvent : objectif profit, cotes principales et session, jamais de none', async () => {
   const events = [{ name: 'A - B', sport: 'football', clock: { running: true }, score: [1, 0], mainOdds: [1.4, 4.2, 7] }];
   let body;
-  const e = await D.chooseEvent(events, async (b) => { body = b; return { auto_live: { choice: 'none' } }; }, { session: { wallet_eur: 20 } });
-  assert.equal(e, null);
+  const e = await D.chooseEvent(events, async (b) => { body = b; return { auto_live: { choice: 'live_0' } }; }, { session: { wallet_eur: 20 } });
+  assert.equal(e, events[0]);
+  assert.ok(!('none' in body.questions.auto_live.criteria));
   assert.deepEqual(body.state.events[0].main_odds, [1.4, 4.2, 7]);
   assert.deepEqual(body.state.session, { wallet_eur: 20 });
   assert.match(body.questions.auto_live.instructions, /faire croître/);
@@ -72,4 +75,21 @@ test('marketMargin : somme des probabilités implicites − 100, null si < 2 cot
   assert.equal(D.marketMargin({ options: [{ available: true, odds: 2 }, { available: true, odds: 2 }] }), 0);
   assert.equal(D.marketMargin({ options: [{ available: true, odds: 1.9 }, { available: true, odds: 1.9 }] }), 5.3);
   assert.equal(D.marketMargin({ options: [{ available: true, odds: 2 }] }), null);
+});
+
+test('choosePick : seules les cotes acceptables par le guard sont proposées', async () => {
+  const markets = [{ id: 'm', title: 'T', options: [
+    { name: 'bas', odds: 1.1, available: true }, { name: 'ok', odds: 2, available: true }, { name: 'haut', odds: 9, available: true }
+  ] }];
+  let body;
+  const [p] = await D.choosePick(markets, {}, async (b) => { body = b; return { auto_pick: { choice: 'pick_0' } }; }, { minOdds: 1.3, maxOdds: 4 });
+  assert.deepEqual(body.state.selections.map((s) => s.choice), ['ok']);
+  assert.equal(p.choice, 'ok');
+});
+
+test('choosePick : aucune cote jouable => aucun pari, JEV non interrogé', async () => {
+  const markets = [{ id: 'm', title: 'T', options: [{ name: 'haut', odds: 9, available: true }] }];
+  let asked = false;
+  assert.deepEqual(await D.choosePick(markets, {}, async () => { asked = true; }, { minOdds: 1.3, maxOdds: 4 }), []);
+  assert.equal(asked, false);
 });
