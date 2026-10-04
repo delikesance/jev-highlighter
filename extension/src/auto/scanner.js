@@ -11,10 +11,12 @@
     const m = el && el.className && typeof el.className === 'string' && el.className.match(/icon_sport_([a-z0-9_-]+)/i);
     return m ? m[1].toLowerCase() : null;
   }
-  const norm = (s) => (s === 'football' || s === 'basketball' ? s : 'other');
+  const DEFAULT_SPORTS = ['football', 'basketball'];
+  // Tout sport hors liste => 'other' (jamais de pari).
+  const normFor = (sports) => (s) => (sports.includes(s) ? s : 'other');
 
   // Seul 'football' laisse passer un pari : toute ambiguïté => 'other'.
-  function sportOf(card, bucket) {
+  function sportOf(card, bucket, norm) {
     const own = rawSport(card.querySelector('.breadcrumb_itemIcon[class*="icon_sport_"]'));
     let head = null;
     if (bucket) {
@@ -57,13 +59,14 @@
     return vals.length && vals.every((v) => Number.isFinite(v) && v > 1) ? vals : null;
   }
 
-  function scanLive(doc) {
+  function scanLive(doc, sports) {
+    const norm = normFor(Array.isArray(sports) && sports.length ? sports : DEFAULT_SPORTS);
     const out = [];
     doc.querySelectorAll('a[sports-events-event-card]').forEach((card) => {
       const href = card.getAttribute('href');
       if (!href) return;
       const bucket = card.closest('sports-live-event-bucket');
-      const sport = sportOf(card, bucket);
+      const sport = sportOf(card, bucket, norm);
       out.push({
         href,
         // aria-label, sinon .event_name ; sinon '' (rien de plus fiable que ces deux sources).
