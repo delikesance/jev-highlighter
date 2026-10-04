@@ -50,6 +50,13 @@
     });
   }
 
+  // Cotes du marché principal de la carte, dans l'ordre d'affichage ; null si illisibles. Donnée d'information pour JEV.
+  function mainOdds(card) {
+    const vals = Array.from(card.querySelectorAll('sports-default-markets button[bcdkbetbutton]'))
+      .map((b) => parseFloat(txt(b.querySelector('bcdk-bet-button-odds-animated')).replace(',', '.')));
+    return vals.length && vals.every((v) => Number.isFinite(v) && v > 1) ? vals : null;
+  }
+
   function scanLive(doc) {
     const out = [];
     doc.querySelectorAll('a[sports-events-event-card]').forEach((card) => {
@@ -65,6 +72,7 @@
         clock: Clock.parseClock(txt(card.querySelector('.event_infoTime'))),
         score: parseScore(card),
         mainSuspended: mainSuspended(card),
+        mainOdds: mainOdds(card),
         index: out.length
       });
     });

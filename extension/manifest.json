@@ -45,6 +45,7 @@
         "src/auto/tracker.js",
         "src/auto/controller.js",
         "src/auto/decisions.js",
+        "src/auto/journal.js",
         "src/auto/wiring.js",
         "src/auto/auto-ui.js",
         "src/content.js"

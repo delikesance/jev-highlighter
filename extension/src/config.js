@@ -100,6 +100,9 @@
       }
     },
 
+    // Journal des décisions Auto (chrome.storage.local) : nombre d'entrées conservées.
+    journal: { max: 200 },
+
     // Textes envoyés à JEV (génériques, aucun marché codé en dur).
     templates: {
       instructions: (title) =>

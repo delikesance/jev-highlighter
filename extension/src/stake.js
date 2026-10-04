@@ -85,11 +85,11 @@
         [`stake_round_${round}`]: {
           type: 'choice',
           instructions:
-            `Solde disponible : ${fmtMoney(ctx.wallet)} €. Cote totale du ticket : ${ctx.totalOdds}. ` +
-            `Quelle tranche de mise est la plus raisonnable pour ce pari, compte tenu du solde, de la cote ` +
-            `et de la préférence du modèle pour ces sélections ? Une cote élevée est acceptable si le modèle juge le pari ` +
-            `sûr (forte confiance, contexte du match favorable) : à toi d'arbitrer le risque. Si le pari est trop incertain, ` +
-            `choisis une petite tranche ou ne pas miser. Jamais tout le solde.`,
+            `Tu gères une bankroll et ton objectif est de la faire croître sur la durée. Solde disponible : ${fmtMoney(ctx.wallet)} €. ` +
+            `Cote totale du ticket : ${ctx.totalOdds}. Quelle tranche de mise est la plus raisonnable pour ce pari, compte tenu du solde, de la cote, ` +
+            `de la préférence et de la confiance du modèle pour la sélection, et du contexte du match ? ` +
+            `Mise davantage quand l'avantage est net et la situation claire, très peu quand le pari est incertain ou que la cote paie à peine son risque. ` +
+            `Si le pari ne vaut pas le risque, choisis de ne pas miser. Jamais tout le solde.`,
           criteria
         }
       }
