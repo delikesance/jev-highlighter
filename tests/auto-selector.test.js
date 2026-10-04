@@ -67,8 +67,9 @@ test('pickSelections: choice normalisé (accents/casse)', () => {
   assert.strictEqual(r[0].label, 'Pérou');
 });
 test('pickSelections: confidence null/NaN/chaîne/basse refusée', () => {
+  const strictCfg = { ...cfg, minConfidence: 0.6 };
   for (const c of [null, NaN, '0.9', undefined, 0.59]) {
-    assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Canada', c)], markets, cfg, 'football'), []);
+    assert.deepStrictEqual(pickSelections([rec('prochain_but', 'Canada', c)], markets, strictCfg, 'football'), []);
   }
 });
 test('pickSelections: libellé inconnu ou marché inconnu ignoré', () => {
