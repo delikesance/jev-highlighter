@@ -63,7 +63,7 @@
     return out;
   }
 
-  function buildStakeBody(ctx, cells, { round, lo, hi, includeNone, previous }) {
+  function buildStakeBody(ctx, cells, { round, lo, hi, includeNone, previous, mandatory }) {
     const criteria = {};
     if (includeNone) criteria[NONE_KEY] = 'Il vaut mieux ne rien miser sur ce pari.';
     for (const c of cells)
@@ -89,7 +89,8 @@
             `Cote totale du ticket : ${ctx.totalOdds}. Quelle tranche de mise est la plus raisonnable pour ce pari, compte tenu du solde, de la cote, ` +
             `de la préférence et de la confiance du modèle pour la sélection, et du contexte du match ? ` +
             `Mise davantage quand l'avantage est net et la situation claire, très peu quand le pari est incertain ou que la cote paie à peine son risque. ` +
-            `Si le pari ne vaut pas le risque, choisis de ne pas miser. Jamais tout le solde.`,
+            (mandatory ? `Une mise est obligatoire : choisis la tranche la plus adaptée, petite si le pari est incertain. ` : `Si le pari ne vaut pas le risque, choisis de ne pas miser. `) +
+            `Jamais tout le solde.`,
           criteria
         }
       }
@@ -114,6 +115,7 @@
   async function suggestStake(ctx, ask) {
     const { cells: cellCount, maxRounds, maxFractionOfWallet, oddsRiskRef, minStake } = CONFIG.stake;
     const riskFactor = oddsRiskRef > 0 && ctx.totalOdds > oddsRiskRef ? oddsRiskRef / ctx.totalOdds : 1;
+    const allowNone = ctx.allowNone !== false;
     const cap = r2(Math.min(ctx.wallet * maxFractionOfWallet * riskFactor, ctx.wallet));
     if (!(cap >= minStake)) return { none: true, reason: 'wallet-too-low' };
 
@@ -123,8 +125,8 @@
     const rounds = [];
     for (let round = 1; round <= maxRounds; round++) {
       const cells = buildLadder(lo, hi, cellCount);
-      const includeNone = round === 1;
-      const body = buildStakeBody(ctx, cells, { round, lo, hi, includeNone, previous });
+      const includeNone = allowNone && round === 1;
+      const body = buildStakeBody(ctx, cells, { round, lo, hi, includeNone, previous, mandatory: !allowNone });
       const id = `stake_round_${round}`;
       const answers = await ask(body);
       const pick = pickCell(cells, answers && answers[id], includeNone);

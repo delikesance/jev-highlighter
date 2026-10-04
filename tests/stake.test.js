@@ -82,3 +82,18 @@ test('suggestStake : jamais all-in (plafond dur 10 % du solde, JEV arbitre le ri
   const risky = await suggestStake({ wallet: 100, totalOdds: 12, selections: [] }, ask);
   assert.ok(risky.amount <= 10, `cote haute ${risky.amount}`); // JEV décide du risque, plafond dur inchangé
 });
+
+test('suggestStake : allowNone false (mode Auto) => pas d\'option « Ne pas miser », mise obligatoire', async () => {
+  const log = [];
+  const ctx = { wallet: 59, totalOdds: 2.75, selections: [], allowNone: false };
+  const r = await suggestStake(ctx, fakeAsk(2.34, log));
+  assert.ok(!('Ne pas miser' in log[0].questions.stake_round_1.criteria));
+  assert.match(log[0].questions.stake_round_1.instructions, /mise est obligatoire/);
+  assert.ok(r.amount > 0 && !r.none);
+});
+
+test('suggestStake : allowNone par défaut conserve « Ne pas miser » (popup)', async () => {
+  const log = [];
+  await suggestStake({ wallet: 59, totalOdds: 2, selections: [] }, fakeAsk(2, log));
+  assert.ok('Ne pas miser' in log[0].questions.stake_round_1.criteria);
+});
