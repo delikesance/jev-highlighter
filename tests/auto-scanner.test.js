@@ -95,3 +95,17 @@ test('mainOdds : cotes lues dans l\'ordre, null si une cote est illisible', () =
   assert.strictEqual(scanLive(docOf(cardHtml({ btns: [btn('1,50'), btn('-')] })))[0].mainOdds, null);
   assert.strictEqual(scanLive(docOf(cardHtml({ btns: [] })))[0].mainOdds, null);
 });
+
+test('sports configurables : hockey accepté seulement s\'il est dans la liste, sinon other', () => {
+  const html = bucketHtml('icon_sport_ice_hockey', cardHtml({ icon: 'icon_sport_ice_hockey' }));
+  assert.strictEqual(scanLive(docOf(html))[0].sport, 'other');
+  assert.strictEqual(scanLive(docOf(html), ['football', 'basketball'])[0].sport, 'other');
+  assert.strictEqual(scanLive(docOf(html), ['football', 'ice_hockey'])[0].sport, 'ice_hockey');
+  const baseball = bucketHtml('icon_sport_baseball', cardHtml({ icon: 'icon_sport_baseball' }));
+  assert.strictEqual(scanLive(docOf(baseball), ['football', 'ice_hockey'])[0].sport, 'other');
+});
+
+test('sports configurables : ambiguïté carte/en-tête => other même si le sport est autorisé', () => {
+  const html = bucketHtml('icon_sport_football', cardHtml({ icon: 'icon_sport_ice_hockey' }));
+  assert.strictEqual(scanLive(docOf(html), ['football', 'ice_hockey'])[0].sport, 'other');
+});
