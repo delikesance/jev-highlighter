@@ -636,3 +636,16 @@ test('journal défaillant : le pari et la session continuent', async () => {
   assert.ok(!seq.includes('STOPPED'));
   assert.equal(t.store.raw().bets.length, 1);
 });
+
+test('sports : un live de hockey n\'est candidat que si le sport est autorisé', async () => {
+  const hockey = { ...EVENT, href: '/hockey/m1', name: 'H - K', sport: 'ice_hockey', clock: { running: true, remainingSec: 600 } };
+  const choose = async (events) => events[0];
+  const off = await armed({ events: [hockey], deps: { chooseEvent: choose } });
+  await off.ctl.step(); await off.ctl.step();
+  assert.equal(await off.ctl.step(), 'PAUSE');
+  assert.match(off.store.raw().message, /hors sport Auto \(football, basketball\)/);
+  const on = await armed({ events: [hockey], deps: { chooseEvent: choose, sports: ['football', 'basketball', 'ice_hockey'] } });
+  await on.ctl.step(); await on.ctl.step();
+  assert.equal(await on.ctl.step(), 'ANALYSE');
+  assert.equal(on.store.raw().event.sport, 'ice_hockey');
+});

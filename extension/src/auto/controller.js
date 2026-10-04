@@ -18,6 +18,7 @@
     const sleep = deps.sleep;
     const pauseMs = Number.isFinite(cfg && cfg.pauseMs) ? cfg.pauseMs : 5000;
     const maxCycles = Number.isInteger(cfg && cfg.maxCycles) ? cfg.maxCycles : 60;
+    const sports = Array.isArray(deps.sports) && deps.sports.length ? deps.sports : ['football', 'basketball'];
     const maxBets = Math.min(Number.isInteger(cfg && cfg.maxBets) ? cfg.maxBets : 5, 5);
     // Mémoire locale (aucune donnée de session) : onglet étranger, verrou de ré-entrance, objets reconstruits depuis le store.
     let foreign = false;
@@ -175,7 +176,7 @@
 
     const quickCountFor = typeof deps.quickCountFor === 'function'
       ? deps.quickCountFor
-      : (e) => (e && (e.sport === 'football' || e.sport === 'basketball') ? 1 : 0);
+      : (e) => (e && sports.includes(e.sport) ? 1 : 0);
 
     function readMarkets() {
       const parsed = deps.parseMarkets(doc);
@@ -222,10 +223,10 @@
           if (!Number.isFinite(retryAfter[href])) retryAfter[href] = time + 30000;
           return retryAfter[href] > time;
         }));
-        const all = (scanner.scanLive(doc) || []).filter(Boolean);
+        const all = (scanner.scanLive(doc, sports) || []).filter(Boolean);
         const scanSummary = { total: all.length, tried: 0, sport: 0, paused: 0 };
         for (const e of all) {
-          if (!['football', 'basketball'].includes(e.sport)) scanSummary.sport++;
+          if (!sports.includes(e.sport)) scanSummary.sport++;
           else if (!e.clock || !e.clock.running) scanSummary.paused++;
           else if (tried.has(e.href)) scanSummary.tried++;
         }
@@ -235,7 +236,7 @@
         return 'CHOIX';
       },
       async CHOIX(st) {
-        const candidates = (st.events || []).filter((e) => ['football', 'basketball'].includes(e.sport) && e.clock && e.clock.running && safeUrl(e.href));
+        const candidates = (st.events || []).filter((e) => sports.includes(e.sport) && e.clock && e.clock.running && safeUrl(e.href));
         const event = typeof deps.chooseEvent === 'function'
           ? (candidates.length ? await deps.chooseEvent(candidates) : null)
           : selector.pickEvent(st.events || [], new Set(st.tried || []), quickCountFor);
@@ -245,7 +246,7 @@
         if (!event) {
           const summary = st.scanSummary;
           const message = summary
-            ? `Recherche : ${summary.total} détecté(s), ${summary.tried} déjà tenté(s) en attente de réanalyse, ${summary.paused} en pause/non démarré(s), ${summary.sport} hors sport Auto. Nouvelle recherche après la pause.`
+            ? `Recherche : ${summary.total} détecté(s), ${summary.tried} déjà tenté(s) en attente de réanalyse, ${summary.paused} en pause/non démarré(s), ${summary.sport} hors sport Auto (${sports.join(', ')}). Nouvelle recherche après la pause.`
             : 'Aucun événement en cours éligible : nouvelle recherche après la pause.';
           log(message);
           await set({ phase: 'PAUSE', events: null, message });
