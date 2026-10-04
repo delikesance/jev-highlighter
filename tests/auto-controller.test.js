@@ -604,3 +604,35 @@ test('arm(manualCheckDone) : le pari incertain passe dans bets (unverified), com
   assert.match(store.raw().reason, /limite de session/);
   assert.ok(!t.calls.includes('place'));
 });
+
+test('journal : décision enregistrée puis issue (placé) ; execId copié sur le pari suivi', async () => {
+  const log = [];
+  const journal = { record: async (e) => { log.push(['record', e]); }, update: async (id, p) => { log.push(['update', id, p]); } };
+  const t = await armed({ deps: { journal } });
+  for (let i = 0; i < 7; i++) await t.ctl.step();
+  const rec = log.find((l) => l[0] === 'record')[1];
+  assert.equal(rec.execId, 'exec-1');
+  assert.equal(rec.pick.label, 'A');
+  assert.equal(rec.pick.odds, 2);
+  assert.equal(rec.stake, 5);
+  assert.deepEqual(log.find((l) => l[0] === 'update').slice(1, 2), ['exec-1']);
+  assert.equal(log.find((l) => l[0] === 'update')[2].outcome, 'placed');
+  assert.equal(t.store.raw().bets[0].execId, 'exec-1');
+});
+
+test('journal : résultat gagné/perdu reporté par execId au règlement', async () => {
+  const log = [];
+  const journal = { record: async () => {}, update: async (id, p) => { log.push([id, p.outcome]); } };
+  const t = await armed({ deps: { journal }, resolve: () => 'won' });
+  for (let i = 0; i < 12; i++) await t.ctl.step();
+  assert.deepEqual(log.at(-1), ['exec-1', 'won']);
+});
+
+test('journal défaillant : le pari et la session continuent', async () => {
+  const journal = { record: async () => { throw new Error('quota'); }, update: async () => { throw new Error('quota'); } };
+  const t = await armed({ deps: { journal } });
+  const seq = [];
+  for (let i = 0; i < 7; i++) seq.push(await t.ctl.step());
+  assert.ok(!seq.includes('STOPPED'));
+  assert.equal(t.store.raw().bets.length, 1);
+});

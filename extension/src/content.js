@@ -412,15 +412,30 @@
       }
       return res.data.answers;
     };
+    const journal = A.Journal.createJournal({ area: chrome.storage.local, now, max: CONFIG.journal.max });
+    // Situation de la session transmise à JEV : solde et derniers paris réglés (informatif, jamais une règle).
+    async function sessionState() {
+      try {
+        const [s, l] = await Promise.all([rt.store.get(), journal.list()]);
+        return {
+          wallet_eur: A.Readers.readWallet(document),
+          start_balance_eur: s.session && s.session.startBalance,
+          bets_this_session: Array.isArray(s.bets) ? s.bets.length : 0,
+          recent_results: l.filter((e) => e.outcome === 'won' || e.outcome === 'lost').slice(-5)
+            .map((e) => ({ event: e.event && e.event.name, selection: e.pick && e.pick.label, odds: e.pick && e.pick.odds, stake: e.stake, result: e.outcome }))
+        };
+      } catch (e) { return null; }
+    }
     async function chooseEvent(events) {
       alog('JEV : choix du live', events.map(({ name, sport, clock, score }) => ({ name, sport, clock, score })));
-      return A.Decisions.chooseEvent(events, askJev);
+      return A.Decisions.chooseEvent(events, askJev, { session: await sessionState() });
     }
     async function analyzeAuto(markets, ctx) {
       const matchKey = MatchContext.keyFromPath(location.pathname);
-      const matchContext = matchKey && st.settings.matchContext ? MatchContext.peek(matchKey) : null;
-      alog('JEV : choix du pari', markets.length);
-      return A.Decisions.choosePick(markets, { event: ctx && ctx.event, match_context: matchContext }, askJev);
+      // `get` (et non `peek`) : charge les stats si elles ne sont pas encore en mémoire ; ne lève jamais.
+      const matchContext = matchKey && st.settings.matchContext ? await MatchContext.get(matchKey) : null;
+      alog('JEV : choix du pari', { markets: markets.length, hasContext: !!matchContext });
+      return A.Decisions.choosePick(markets, { event: ctx && ctx.event, match_context: matchContext, session: await sessionState() }, askJev);
     }
     async function stakeFromTicket({ slip, wallet, decision }) {
       if (typeof wallet !== 'number' || !(slip.odds > 0)) return null;
@@ -428,8 +443,9 @@
       const ctx = {
         wallet,
         totalOdds: slip.odds,
-        selections: [{ event: slip.event, market: slip.market, selection: slip.selection, odds: slip.odds, jev_preference: null, jev_confidence: decision.confidence }],
-        matchContext: null
+        selections: [{ event: slip.event, market: slip.market, selection: slip.selection, odds: slip.odds,
+          jev_preference: decision.jevScore == null ? null : decision.jevScore, jev_confidence: decision.confidence }],
+        matchContext: st.settings.matchContext ? MatchContext.peek(MatchContext.keyFromPath(location.pathname)) : null
       };
       const r = await suggestStake(ctx, askJev);
       alog('JEV: stake result', r);
@@ -438,7 +454,7 @@
 
     const rt = A.Wiring.createRuntime({
       chromeApi: chrome, doc: document, tabId, settings: st.settings, cfg: CONFIG.auto, modules: A, now, sleep, log: alog,
-      chooseEvent, analyze: analyzeAuto, stakeFromTicket, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
+      chooseEvent, analyze: analyzeAuto, stakeFromTicket, journal, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
     });
     auto.rt = rt;
     const status = async () => ({ ...(await rt.store.get()), balance: A.Readers.readWallet(document) });

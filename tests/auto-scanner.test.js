@@ -89,3 +89,9 @@ test('score illisible => null', () => {
   assert.strictEqual(sc('<span class="scoreboard_score-1">1</span>'), null);
   assert.deepStrictEqual(sc('<span class="scoreboard_score-1">1</span><span class="scoreboard_score-2">0</span>'), [1, 0]);
 });
+
+test('mainOdds : cotes lues dans l\'ordre, null si une cote est illisible', () => {
+  assert.deepStrictEqual(scanLive(docOf(cardHtml()))[0].mainOdds, [1.5, 2, 3]);
+  assert.strictEqual(scanLive(docOf(cardHtml({ btns: [btn('1,50'), btn('-')] })))[0].mainOdds, null);
+  assert.strictEqual(scanLive(docOf(cardHtml({ btns: [] })))[0].mainOdds, null);
+});

@@ -171,7 +171,7 @@
     const controller = M.Controller.createController({
       store, scanner: M.Scanner, selector: M.Selector, readers, tracker, cfg, tabId, settings, doc,
       analyze: opts.analyze, stakeFor: opts.stakeFor, navigate: opts.navigate, parseMarkets: opts.parseMarkets,
-      chooseEvent: opts.chooseEvent, ticketSizing: typeof opts.stakeFromTicket === 'function',
+      chooseEvent: opts.chooseEvent, journal: opts.journal, ticketSizing: typeof opts.stakeFromTicket === 'function',
       sleep, now, log,
       makeGuard: (startBalance, snapshot) => M.Guard.create(cfg, startBalance, snapshot),
       makeExecutor: (guard) => M.Executor.createExecutor({ doc, readers, guard, store, sleep, now, cfg, log, stakeFromTicket: opts.stakeFromTicket }),

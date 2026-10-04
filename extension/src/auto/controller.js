@@ -29,6 +29,11 @@
     const msg = (e) => String((e && e.message) || e);
     const secretLeaked = () => !!settings && typeof settings === 'object' && Object.keys(settings).some((k) => SECRET_RE.test(k));
     const set = (p) => store.set(p);
+    // Le journal ne décide rien et ne doit jamais interrompre un pari : toute erreur est seulement journalisée.
+    const note = async (fn) => {
+      if (!deps.journal) return;
+      try { await fn(deps.journal); } catch (e) { log('journal: écriture impossible', msg(e)); }
+    };
     const isOther = (st) => st.ownerTabId != null && st.ownerTabId !== tabId;
 
     function buildGuard(startBalance, snap) {
@@ -150,6 +155,7 @@
         const r = b.ref ? await tracker.resolve(b.ref) : 'pending';
         if (r === 'won' || r === 'lost') {
           guard.recordResult(r);
+          await note((j) => j.update(b.execId, { outcome: r }));
           if (!b.released) guard.release(b.stake);
           out.push({ ...b, status: r, released: true });
         } else out.push(b);
@@ -274,7 +280,7 @@
         const picks = deps.chooseEvent ? ranked.flatMap((match) => {
           const market = markets.find((m) => m.id === match.marketId);
           const option = market && market.options.find((o) => o.available && o.name === match.choice && Number.isFinite(o.odds));
-          return option ? [{ marketId: market.id, label: option.name, odds: option.odds, confidence: match.confidence, window: market.window || null }] : [];
+          return option ? [{ marketId: market.id, label: option.name, odds: option.odds, confidence: match.confidence, jevScore: Number.isFinite(match.jevScore) ? match.jevScore : null, window: market.window || null }] : [];
         }) : selector.pickSelections(ranked, markets, cfg, event.sport);
         const p = picks.find((pick) => {
           const market = markets.find((m) => m.id === pick.marketId);
@@ -296,6 +302,9 @@
         const execSeq = (Number.isInteger(st.execSeq) ? st.execSeq : 0) + 1;
         await set({ phase: 'EXEC', stake, execSeq, execId: `exec-${execSeq}`, lastPlaced: null, before: null,
           ...cooldown(st, st.event.href), playedKeys: [...(st.playedKeys || []), key] });
+        await note((j) => j.record({ execId: `exec-${execSeq}`, dryRun: !!st.dryRun, stake,
+          event: { name: st.event.name, sport: st.event.sport, score: st.event.score || null, clock: st.event.clock || null },
+          pick: { marketTitle: st.pick.marketTitle, window: st.pick.window, label: st.pick.label, odds: st.pick.odds, confidence: st.pick.confidence, jevScore: st.pick.jevScore == null ? null : st.pick.jevScore } }));
         return 'EXEC';
       },
       async EXEC(st) {
@@ -315,7 +324,7 @@
         }
         if (!st.dryRun) await set({ before });
         const decision = { marketTitle: pk.marketTitle, window: pk.window, label: pk.label, event: st.event.name,
-          analysedOdds: pk.odds, suggestedStake: st.stake, confidence: pk.confidence, dryRun: st.dryRun, execId: st.execId };
+          analysedOdds: pk.odds, suggestedStake: st.stake, confidence: pk.confidence, jevScore: pk.jevScore == null ? null : pk.jevScore, dryRun: st.dryRun, execId: st.execId };
         let r;
         try {
           r = await executor.place(decision);
@@ -326,6 +335,7 @@
           if (after.pending && !after.pending.counted) patch.pending = { ...after.pending, reservedInSnap: true };
           await set(patch);
         }
+        await note((j) => j.update(st.execId, { outcome: !r ? 'halt' : r.status === 'refused' ? 'refused' : r.status, stake: r && Number.isFinite(r.stake) ? r.stake : st.stake, reason: (r && r.reason) || null }));
         if (r && r.status === 'placed') { await set({ phase: 'ATTENTE', placedStake: r.stake }); return 'ATTENTE'; }
         if (!r || r.status === 'halt') { await stop((r && r.reason) || 'arrêt de l\'exécuteur'); return 'STOPPED'; }
         const patch = { phase: 'PAUSE', pick: null, event: null, ...cooldown(st, st.event.href) };
@@ -353,7 +363,7 @@
           await stop('suivi impossible : vérifier Mes paris + solde');
           return 'STOPPED';
         }
-        const bet = { ref: id.reference, method: id.method, stake: st.placedStake, status: 'pending', event: st.event.name };
+        const bet = { ref: id.reference, method: id.method, stake: st.placedStake, status: 'pending', event: st.event.name, execId: st.execId || null };
         await set({ phase: 'PAUSE', bets: [...(st.bets || []), bet], before: null, pick: null, event: null });
         return 'PAUSE';
       },
