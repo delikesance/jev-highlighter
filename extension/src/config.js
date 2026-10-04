@@ -8,7 +8,7 @@
       // Doc : https://docs.typesafe.ai/api.md  (POST /v1/systemone, Bearer auth)
       endpoint: 'https://api.typesafe.ai/v1/systemone',
       authHeaderName: 'Authorization',
-      authScheme: 'Bearer', // header = `${authScheme} ${apiKey}` ; mettre '' pour envoyer la clé seule
+      authScheme: 'Bearer', // header = `${authScheme} <clé>` ; mettre '' pour envoyer la clé seule
       // `model` est OBLIGATOIRE (sinon 422). "jev-latest" = alias documenté ; voir https://docs.typesafe.ai/models.md
       model: 'jev-latest',
       maxQuestionsPerRequest: 100, // À CONFIRMER : la doc ne fixe pas de limite ; on découpe au-delà.
@@ -23,6 +23,7 @@
       marketBox: '[data-qa="market-box"]',
       title: '[data-qa="market-title"]',
       titleText: '.marketBox_headTitleWrapper',
+      marketHandler: '.marketBox_marketHandler',
       line: '.marketBox_lineSelection',
       label: '.marketBox_label',
       button: '[data-qa="market-selection"]',
@@ -67,6 +68,40 @@
       debounceMs: 1500,
       debounceMaxWaitMs: 3000
     },
+
+    // Mode Auto : valeurs réglables, bornées par les plafonds durs de auto/guard.js (on peut durcir, pas relâcher).
+    auto: {
+      minOdds: 1.3,
+      maxOdds: 4,
+      maxDriftPct: 3,
+      minLeadSec: 90,
+      minConfidence: 0.6,
+      confirmTimeoutMs: 8000,
+      hiddenTabMs: 5000,
+      slipWaitMs: 3000, // attente des mises à jour du ticket (Angular asynchrone), ≤ 10000
+      identifyRetries: 3, // tentatives d'identification de la nouvelle carte, 1..5
+      pollMs: 250, // pas d'interrogation du DOM, ≥ 50
+      maxCycles: 60, // nombre max. de cycles SCAN par session, 1..200
+      pauseMs: 30000, // espace les recherches/requêtes Auto, 1000..60000
+      stepMs: 1500, // intervalle entre deux transitions du contrôleur (planificateur séquentiel), 500..10000
+      maxBets: 5,
+      maxLosses: 3,
+      maxLossFraction: 0.5,
+      maxStakeFraction: 0.1,
+      myBetsPath: '/mes-paris', // page « Mes paris » (même origine), chargée dans une iframe cachée pour le suivi
+      myBetsWaitMs: 10000, // attente bornée de « Mes paris » dans l'iframe, ≤ 20000
+      // Marchés « rapides » autorisés : motifs sur le titre du marché (minuscules).
+      quickMarkets: {
+        football: [
+          /prochain but/, /qui marquera le \d+(?:er|e|ème|eme)? but/, /quand sera marqu/,
+          /sur la période/, /corner/, /carton/, /prochain buteur/
+        ],
+        basketball: [/prochain panier/, /total.*quart[- ]temps/, /quart[- ]temps.*total/]
+      }
+    },
+
+    // Journal des décisions Auto (chrome.storage.local) : nombre d'entrées conservées.
+    journal: { max: 200 },
 
     // Textes envoyés à JEV (génériques, aucun marché codé en dur).
     templates: {

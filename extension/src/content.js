@@ -120,6 +120,7 @@
       log(matchContext ? `Match context ready (${Object.keys(matchContext).join(', ')})` : 'No match context');
     }
 
+    if (!force && st.settings.autoMode && auto.active) return; // contexte terminé après l'armement
     log('Building evaluation request');
     const built = buildRequest(parsed, { pageTitle: document.title, pagePath: location.pathname, matchContext });
     if (!built.questionCount) {
@@ -177,6 +178,7 @@
   // ------------------------------------------------------------------ auto-analyse (MutationObserver)
 
   const tick = async () => {
+    if (st.settings.autoMode && auto.active) return; // un seul pilote automatique des requêtes
     if (/\/match-center\/?$/.test(location.pathname)) {
       // On est sur la page match-center : on mémorise ce qui s'affiche (source passive du contexte).
       if (st.settings.matchContext) MatchContext.ingestDocument(document, MatchContext.keyFromPath(location.pathname));
@@ -226,6 +228,7 @@
   }
 
   async function stakeTick() {
+    if (st.settings.autoMode && auto.active) return;
     if (!st.settings.stakeAdvice) {
       log('Stake advice disabled');
       abortStake();
@@ -375,6 +378,137 @@
     return true;
   });
 
+  // ------------------------------------------------------------------ mode Auto (expert, désactivé par défaut)
+  // autoMode faux => rien ici ne s'exécute. Jamais d'armement automatique : seul le bouton « Armer » du panneau arme.
+
+  const auto = { started: false, active: false, rt: null, ui: null, timer: null, running: false, cancelled: false, stop: null };
+
+  async function startAuto() {
+    if (window !== window.top) return; // jamais de runtime Auto dans un sous-cadre
+    const A = J.Auto;
+    if (auto.started || !A || !A.Wiring || !A.UI) return;
+    auto.started = true;
+    const now = Date.now; // horloge UNIQUE
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const alog = (...a) => {
+      console.log('[JEV][auto]', new Date(now()).toISOString(), location.pathname, ...a);
+      if (auto.ui) auto.ui.addLog(a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ').slice(0, 1500));
+    };
+    let tabId = null;
+    try { tabId = ((await send({ type: 'JEV_TAB_ID' })) || {}).tabId; } catch (e) { tabId = null; }
+    if (tabId == null) { warn('Mode Auto : identifiant d\'onglet indisponible'); return; }
+
+    const askJev = async (body) => {
+      const requestId = ++st.seq, started = now();
+      alog('JEV: request', { requestId, task: body.state && body.state.task, questions: Object.keys(body.questions || {}), state: body.state, criteria: Object.fromEntries(Object.entries(body.questions || {}).map(([id, q]) => [id, q.criteria])) });
+      let res;
+      try { res = await send({ type: 'JEV_EVALUATE', requestId, body: { model: CONFIG.JEV.model, ...body } }); }
+      catch (e) { alog('JEV: transport error', { requestId, elapsedMs: now() - started, message: e.message }); throw e; }
+      const answers = res && res.data && res.data.answers;
+      alog('JEV: response', { requestId, elapsedMs: now() - started, ok: !!(res && res.ok), answers: Object.fromEntries(Object.entries(answers || {}).map(([id, a]) => [id, { choice: a && a.choice, confidence: a && a.confidence, probabilities: a && a.probabilities }])), error: res && res.error });
+      if (!res || !res.ok) {
+        const e = (res && res.error) || { code: 'unknown', message: 'Réponse vide' };
+        throw Object.assign(new Error(e.message), { code: e.code });
+      }
+      return res.data.answers;
+    };
+    const journal = A.Journal.createJournal({ area: chrome.storage.local, now, max: CONFIG.journal.max });
+    // Situation de la session transmise à JEV : solde et derniers paris réglés (informatif, jamais une règle).
+    async function sessionState() {
+      try {
+        const [s, l] = await Promise.all([rt.store.get(), journal.list()]);
+        return {
+          wallet_eur: A.Readers.readWallet(document),
+          start_balance_eur: s.session && s.session.startBalance,
+          bets_this_session: Array.isArray(s.bets) ? s.bets.length : 0,
+          recent_results: l.filter((e) => e.outcome === 'won' || e.outcome === 'lost').slice(-5)
+            .map((e) => ({ event: e.event && e.event.name, selection: e.pick && e.pick.label, odds: e.pick && e.pick.odds, stake: e.stake, result: e.outcome }))
+        };
+      } catch (e) { return null; }
+    }
+    async function chooseEvent(events) {
+      alog('JEV : choix du live', events.map(({ name, sport, clock, score }) => ({ name, sport, clock, score })));
+      return A.Decisions.chooseEvent(events, askJev, { session: await sessionState() });
+    }
+    async function analyzeAuto(markets, ctx) {
+      const matchKey = MatchContext.keyFromPath(location.pathname);
+      // `get` (et non `peek`) : charge les stats si elles ne sont pas encore en mémoire ; ne lève jamais.
+      const matchContext = matchKey && st.settings.matchContext ? await MatchContext.get(matchKey) : null;
+      alog('JEV : choix du pari', { markets: markets.length, hasContext: !!matchContext });
+      return A.Decisions.choosePick(markets, { event: ctx && ctx.event, match_context: matchContext, session: await sessionState() }, askJev);
+    }
+    async function stakeFromTicket({ slip, wallet, decision }) {
+      if (typeof wallet !== 'number' || !(slip.odds > 0)) return null;
+      alog('JEV : choix de la mise', { wallet, odds: slip.odds });
+      const ctx = {
+        wallet,
+        totalOdds: slip.odds,
+        selections: [{ event: slip.event, market: slip.market, selection: slip.selection, odds: slip.odds,
+          jev_preference: decision.jevScore == null ? null : decision.jevScore, jev_confidence: decision.confidence }],
+        matchContext: st.settings.matchContext ? MatchContext.peek(MatchContext.keyFromPath(location.pathname)) : null
+      };
+      const r = await suggestStake(ctx, askJev);
+      alog('JEV: stake result', r);
+      return r.none ? null : r.amount;
+    }
+
+    const rt = A.Wiring.createRuntime({
+      chromeApi: chrome, doc: document, tabId, settings: st.settings, cfg: CONFIG.auto, modules: A, now, sleep, log: alog,
+      chooseEvent, analyze: analyzeAuto, stakeFromTicket, journal, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
+    });
+    auto.rt = rt;
+    const status = async () => ({ ...(await rt.store.get()), balance: A.Readers.readWallet(document) });
+    const refresh = () => status().then((s) => auto.ui && auto.ui.refresh(s)).catch(() => {});
+
+    // Planificateur séquentiel : un seul step() à la fois, le suivant n'est programmé qu'après la fin du précédent.
+    const schedule = () => {
+      if (auto.cancelled || auto.timer || auto.running) return;
+      auto.timer = setTimeout(loop, CONFIG.auto.stepMs);
+    };
+    async function loop() {
+      auto.timer = null;
+      if (auto.cancelled) return;
+      auto.running = true;
+      let r = 'STOPPED';
+      try { r = await rt.controller.step(); } catch (e) { await rt.stop('step : ' + (e && e.message)); }
+      auto.running = false;
+      auto.active = r !== 'STOPPED' && r !== 'IDLE';
+      refresh();
+      if (r !== 'STOPPED' && r !== 'IDLE') schedule();
+    }
+
+    auto.stop = async (reason) => {
+      auto.cancelled = true;
+      clearTimeout(auto.timer);
+      auto.timer = null;
+      await rt.stop(reason);
+      auto.active = false;
+      refresh();
+    };
+    auto.ui = A.UI.mount(
+      {
+        stop: auto.stop,
+        arm: async (phrase, o) => {
+          if (!st.settings.autoMode) return;
+          auto.active = true;
+          abortInflight(); abortStake();
+          await rt.controller.arm(phrase, o);
+          const s = await status();
+          auto.active = !s.stopped && s.phase !== 'STOPPED' && s.phase !== 'IDLE';
+          auto.ui.refresh(s);
+          if (s.phase === 'ARMED' && !s.stopped) { auto.cancelled = false; schedule(); }
+        }
+      },
+      { doc: document, getStatus: status }
+    );
+    auto.active = true;
+    const r = await rt.controller.init();
+    auto.active = r !== 'STOPPED' && r !== 'IDLE';
+    if (auto.active) { abortInflight(); abortStake(); }
+    refresh();
+    if (r !== 'STOPPED' && r !== 'IDLE') schedule();
+  }
+
   // ------------------------------------------------------------------ démarrage
 
   Storage.getSettings().then((s) => {
@@ -383,6 +517,7 @@
     refreshUI(parseMarkets(document));
     scheduleTick();
     scheduleStake();
+    if (s.autoMode === true) startAuto().catch((e) => warn('Mode Auto', e && e.message));
   });
   Storage.onSettingsChanged((patch) => {
     Object.assign(st.settings, patch);
@@ -390,6 +525,8 @@
     if (patch.autoAnalyze) scheduleTick();
     if (['autoAnalyze', 'reorderPicks', 'dockOpen', 'dockCollapsed'].some((k) => k in patch)) refreshUI();
     if ('matchContext' in patch) st.cache.clear(); // le contexte change la requête : on ré-analysera
+    if (patch.autoMode === true) startAuto().catch((e) => warn('Mode Auto', e && e.message));
+    else if (patch.autoMode === false && auto.stop) auto.stop('Mode Auto désactivé').catch(() => {});
     if ('stakeAdvice' in patch) {
       stakeState.fp = null;
       scheduleStake();

@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const { loadFixture } = require('./helpers');
 const { normalizeText, slugify, parseOdds } = require('../extension/src/utils');
 const { parseMarkets } = require('../extension/src/parser');
-const { buildRequest, resolveTarget, evaluate, JevError } = require('../extension/src/jev');
+const { buildRequest } = require('../extension/src/jev');
+const { resolveTarget, evaluate } = require('../extension/src/transport');
 const { matchAnswers } = require('../extension/src/matcher');
 const { CONFIG } = require('../extension/src/config');
 

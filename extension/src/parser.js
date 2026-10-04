@@ -21,6 +21,14 @@
     const title = textOf(box.querySelector(S.titleText) || box.querySelector(S.title));
     if (!title) return { skip: 'no-title' };
 
+    let timeWindow = null;
+    const handler = box.querySelector(S.marketHandler);
+    if (handler) {
+      const clone = handler.cloneNode(true);
+      clone.querySelectorAll('button, .linkWrapper').forEach((n) => n.remove());
+      timeWindow = textOf(clone) || null;
+    }
+
     const suspended = !!(box.closest(S.suspended) || box.querySelector(S.suspended));
     const options = [];
     const seen = new Map();
@@ -47,9 +55,9 @@
     if (!options.length) return { skip: 'no-options' };
 
     const fingerprint = hash(
-      [title, ...options.map((o) => `${o.key}:${o.odds}:${o.available ? 1 : 0}`)].join('|')
+      [title, timeWindow || '', ...options.map((o) => `${o.key}:${o.odds}:${o.available ? 1 : 0}`)].join('|')
     );
-    return { market: { title, options, suspended, fingerprint, element: box, container } };
+    return { market: { title, window: timeWindow, options, suspended, fingerprint, element: box, container } };
   }
 
   /**
@@ -71,7 +79,7 @@
       }
       const m = r.market;
       // ID déterministe depuis le titre ; en cas de doublon : empreinte des options, puis compteur.
-      let id = slugify(m.title);
+      let id = m.window ? `${slugify(m.title)}_${slugify(m.window)}` : slugify(m.title);
       if (markets.has(id)) id = `${id}_${hash(m.options.map((o) => o.key).join('|')).slice(0, 4)}`;
       for (let i = 2; markets.has(id); i++) id = `${id.replace(/_\d+$/, '')}_${i}`;
       m.id = id;
@@ -94,7 +102,18 @@
     };
   }
 
-  const api = { parseMarkets };
+  /** Retire les marchés identiques (titre, fenêtre, libellés des options), en gardant le premier. La clé ignore volontairement les cotes. */
+  function dedupeMarkets(markets) {
+    const seen = new Set();
+    return markets.filter((m) => {
+      const k = [normalizeText(m.title), m.window || '', ...m.options.map((o) => o.normalizedKey)].join('|');
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  const api = { parseMarkets, dedupeMarkets };
   if (isNode) module.exports = api;
   else Object.assign(root.JEV, api);
 })(globalThis);

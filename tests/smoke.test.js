@@ -16,17 +16,26 @@ function boot(html, settings = {}) {
   return r;
 }
 function boot0(html, settings = {}) {
-  const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true, url: settings.__url || 'https://bookmaker.test/match/1' });
-  const w = dom.window;
+  const frame = !!settings.__frame;
+  const before = settings.__before;
+  const session = { ...(settings.__session || {}) };
+  const url = settings.__url || 'https://bookmaker.test/match/1';
+  const dom = frame
+    ? new JSDOM('<!doctype html><body><iframe></iframe></body>', { runScripts: 'outside-only', pretendToBeVisual: true, url })
+    : new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true, url });
+  const w = frame ? dom.window.document.querySelector('iframe').contentWindow : dom.window;
+  if (frame) { w.document.open(); w.document.write(html); w.document.close(); }
+  const sessionCalls = [];
   const listeners = [];
   const store = { autoAnalyze: false, stakeAdvice: false, matchContext: true, reorderPicks: false, dockOpen: true, dockCollapsed: false, debug: false, ...settings };
-  delete store.__url;
+  for (const k of ['__url', '__frame', '__before', '__session']) delete store[k];
   const sent = [];
   w.chrome = {
     runtime: {
       getURL: (p) => `chrome-extension://test/${p}`,
       sendMessage: async (msg) => {
         sent.push(msg);
+        if (msg.type === 'JEV_TAB_ID') return { tabId: 7 };
         if (msg.type !== 'JEV_EVALUATE') return { ok: true };
         const answers = {};
         for (const [id, q] of Object.entries(msg.body.questions)) {
@@ -47,13 +56,23 @@ function boot0(html, settings = {}) {
         get: async (defaults) => ({ ...defaults, ...store }),
         set: async (patch) => Object.assign(store, patch)
       },
+      session: {
+        get: async (keys) => {
+          sessionCalls.push(['get', keys]);
+          const ks = Array.isArray(keys) ? keys : [keys];
+          return Object.fromEntries(ks.filter((k) => k in session).map((k) => [k, JSON.parse(JSON.stringify(session[k]))]));
+        },
+        set: async (o) => { sessionCalls.push(['set', o]); Object.assign(session, JSON.parse(JSON.stringify(o))); },
+        remove: async (k) => { sessionCalls.push(['remove', k]); delete session[k]; }
+      },
       onChanged: { addListener: () => {} }
     }
   };
   w.document.elementFromPoint = () => null;
   for (const f of manifest.content_scripts[0].js) w.eval(fs.readFileSync(path.join(ext, f), 'utf8'));
+  if (before) before(w);
   const call = (msg) => new Promise((resolve) => listeners[0](msg, {}, resolve));
-  return { w, doc: w.document, call, sent, close: () => w.close() };
+  return { w, doc: w.document, call, sent, session, sessionCalls, close: () => dom.window.close() };
 }
 
 const fixture = () => fs.readFileSync(path.join(__dirname, 'fixture.html'), 'utf8');
@@ -191,6 +210,199 @@ test('smoke : page live bruyante + ticket qui apparaît plus tard -> l\'assistan
   w.clearInterval(noise);
   assert.ok(doc.querySelector('jev-stake'), 'module de mise présent malgré le bruit');
   assert.match(doc.querySelector('jev-stake').shadowRoot.querySelector('.stake__amount').textContent, /\d,\d\d/);
+});
+
+
+// ------------------------------------------------------------------ mode Auto
+
+const AUTO_FILES = ['clock', 'guard', 'scanner', 'selector', 'readers', 'executor', 'tracker', 'controller', 'wiring', 'auto-ui'].map((f) => `src/auto/${f}.js`);
+
+test('manifest : fichiers Auto avant content.js, dans l\'ordre de dépendance, sans all_frames', () => {
+  const cs = manifest.content_scripts[0];
+  const js = cs.js;
+  const idx = AUTO_FILES.map((f) => js.indexOf(f));
+  assert.ok(idx.every((i) => i >= 0), 'tous présents');
+  assert.deepEqual([...idx].sort((a, b) => a - b), idx, 'ordre');
+  assert.ok(idx[idx.length - 1] < js.indexOf('src/content.js'));
+  assert.ok(js.indexOf('src/parser.js') < idx[0] && js.indexOf('src/ui-root.js') < idx[0]);
+  assert.ok(!('all_frames' in cs));
+  assert.doesNotMatch(manifest.description, /Ne place jamais/);
+  assert.match(manifest.description, /mode Auto/);
+});
+
+// Espionne createRuntime (appelé par content.js) ; `patch(opts)` peut remplacer des dépendances.
+function spyRuntime(w, patch) {
+  const calls = [];
+  const real = w.JEV.Auto.Wiring.createRuntime;
+  w.JEV.Auto.Wiring.createRuntime = (opts) => {
+    calls.push(opts);
+    if (patch) patch(opts);
+    return real(opts);
+  };
+  return calls;
+}
+
+test('smoke Auto : autoMode faux -> aucun hôte, aucun storage.session, aucun message, aucun écouteur clavier', async () => {
+  let rt;
+  const keys = [];
+  const { doc, sent, sessionCalls } = boot(fixture(), {
+    __before: (w) => {
+      rt = spyRuntime(w);
+      const add = w.document.addEventListener.bind(w.document);
+      w.document.addEventListener = (t, ...a) => { keys.push(t); return add(t, ...a); };
+    }
+  });
+  await wait(60);
+  assert.equal(doc.querySelector('jev-auto'), null);
+  assert.equal(rt.length, 0);
+  assert.deepEqual(sessionCalls, []);
+  assert.deepEqual(sent.map((m) => m.type), []);
+  assert.ok(!keys.includes('keydown'));
+});
+
+test('smoke Auto actif : pas de requêtes des assistants automatiques concurrents', async () => {
+  const site = require('./helpers-fakesite').makeFakeSite({ preselected: true });
+  const html = site.dom.serialize();
+  site.win.close();
+  const { sent, doc } = boot(html, { autoMode: true, autoAnalyze: true, stakeAdvice: true, matchContext: false, __before: (w) => {
+    w.JEV.CONFIG.debounceMs = 20;
+    w.JEV.CONFIG.stake.debounceMs = 20;
+    w.JEV.Auto.Wiring.createRuntime = () => ({
+      store: { get: async () => ({ phase: 'EXEC', dryRun: false }) },
+      stop: async () => {},
+      controller: { init: async () => 'EXEC', arm: async () => {}, step: async () => 'EXEC' }
+    });
+  } });
+  await wait(5200); // dépasse le maxWait de l'anti-rebond malgré les mutations du panneau
+  doc.querySelector('sports-betting-slip').appendChild(doc.createTextNode('mutation du ticket'));
+  await wait(1200);
+  assert.equal(sent.filter((m) => m.type === 'JEV_EVALUATE').length, 0);
+  const control = boot(html, { autoMode: false, autoAnalyze: true, stakeAdvice: true, matchContext: false });
+  await wait(1700);
+  assert.ok(control.sent.some((m) => m.type === 'JEV_EVALUATE'));
+});
+
+test('smoke Auto : autoMode vrai -> panneau monté, runtime unique, aucun pari tant que non armé', async () => {
+  let rt;
+  const { doc, sent, session } = boot(fixture(), { autoMode: true, __before: (w) => { rt = spyRuntime(w, (o) => {
+    o.analyze = async () => { throw new Error('analyze appelé'); };
+    o.navigate = () => { throw new Error('navigate appelé'); };
+  }); } });
+  await wait(80);
+  assert.ok(doc.querySelector('jev-auto'), 'hôte jev-auto');
+  assert.equal(rt.length, 1);
+  assert.equal(rt[0].tabId, 7);
+  assert.ok(!Object.keys(rt[0].settings).some((k) => /api.?key/i.test(k)));
+  assert.ok(sent.some((m) => m.type === 'JEV_TAB_ID'));
+  assert.ok(!sent.some((m) => m.type === 'JEV_EVALUATE'));
+  assert.ok(!session.jevAuto || !['ARMED', 'SCAN', 'EXEC'].includes(session.jevAuto.phase));
+  const sr = doc.querySelector('jev-auto').shadowRoot;
+  assert.equal(sr.querySelector('[data-k="dry"]').checked, true);
+});
+
+test('smoke Auto : jamais de runtime dans un sous-cadre', async () => {
+  let rt = [];
+  const { doc, sessionCalls, sent } = boot(fixture(), { autoMode: true, __frame: true, __before: (w) => { rt = spyRuntime(w); } });
+  await wait(60);
+  assert.equal(doc.querySelector('jev-auto'), null);
+  assert.equal(rt.length, 0);
+  assert.deepEqual(sessionCalls, []);
+  assert.ok(!sent.some((m) => m.type === 'JEV_TAB_ID'));
+});
+
+test('smoke Auto : step() appelé séquentiellement (jamais de chevauchement), arrêt sur STOPPED', async () => {
+  let active = 0;
+  let maxActive = 0;
+  let steps = 0;
+  const { w } = boot(fixture(), { autoMode: true, __before: (w) => {
+    w.JEV.CONFIG.auto.stepMs = 5;
+    w.JEV.Auto.Wiring.createRuntime = () => ({
+      store: { get: async () => ({ phase: 'SCAN' }) },
+      stop: async () => {},
+      controller: {
+        init: async () => 'SCAN',
+        arm: async () => {},
+        stop: async () => {},
+        step: async () => {
+          active++; maxActive = Math.max(maxActive, active); steps++;
+          await new Promise((r) => setTimeout(r, 40)); // step lent
+          active--;
+          return steps >= 4 ? 'STOPPED' : 'SCAN';
+        }
+      }
+    });
+  } });
+  await wait(400);
+  assert.equal(maxActive, 1);
+  assert.equal(steps, 4, 'arrêt dès STOPPED');
+  assert.ok(w);
+});
+
+test('smoke Auto : marchés rapides dupliqués entre sections -> un seul envoyé à analyze', async () => {
+  const seen = [];
+  const fast = fs.readFileSync(path.join(__dirname, 'fixture-fast.html'), 'utf8');
+  const st = { phase: 'ANALYSE', event: { href: '/match/1', sport: 'football' }, session: { startBalance: 100 },
+    guardSnap: { placed: 0, inFlight: 0, consecutiveLosses: 0, reserved: 0 }, ownerTabId: 7, tried: [], bets: [] };
+  boot(fast, { autoMode: true, __session: { jevAuto: st }, __before: (w) => {
+    w.JEV.CONFIG.auto.stepMs = 500; // minimum validé par le guard
+    spyRuntime(w, (o) => {
+      const real = o.analyze;
+      assert.equal(typeof real, 'function');
+      o.analyze = async (markets) => { seen.push(markets.map((m) => m.title)); return []; };
+      o.navigate = () => {};
+    });
+  } });
+  await wait(700);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].filter((t) => t.startsWith('Nombre total')).length, 1);
+});
+
+test('smoke Auto : décisions live, pari et mise du ticket via JEV ; analyse manuelle intacte', async () => {
+  let opts;
+  const logs = [];
+  const { sent, doc } = boot(fixture(), { autoMode: true, debug: false, __before: (w) => {
+    w.console.log = (...a) => logs.push(a);
+    spyRuntime(w, (o) => { opts = o; });
+  } });
+  await wait(60);
+  const list = opts.parseMarkets(doc);
+  assert.ok(Array.isArray(list) && list.length >= 5);
+  const events = [{ href: '/match/1', name: 'A - B', sport: 'football', clock: { running: true } }];
+  const live = await opts.chooseEvent(events);
+  assert.equal(live.href, events[0].href);
+  const matches = await opts.analyze(list.slice(0, 2), { event: { href: '/match/1' } });
+  assert.equal(sent.filter((m) => m.type === 'JEV_EVALUATE').length, 2);
+  assert.equal(matches.length, 1);
+  assert.equal(sent.find((m) => m.type === 'JEV_EVALUATE').body.model, 'jev-latest');
+  assert.ok(matches.every((m) => typeof m.marketId === 'string' && typeof m.choice === 'string'));
+  const amount = await opts.stakeFromTicket({ slip: { event: 'A - B', market: 'Vainqueur', selection: 'A', odds: 2.35 }, wallet: 14.47, decision: { confidence: 0.8 } });
+  assert.ok(amount > 0 && amount < 14.47);
+  const requests = sent.filter((m) => m.type === 'JEV_EVALUATE').map((m) => m.body);
+  assert.equal(requests[0].state.task, 'auto_choose_live');
+  assert.equal(requests[1].state.task, 'auto_choose_bet');
+  assert.ok(requests.slice(2).every((b) => b.state.task === 'stake_sizing' && b.state.wallet_eur === 14.47 && b.state.total_odds === 2.35));
+  assert.ok(logs.some((l) => l.includes('JEV: request')));
+  assert.ok(logs.some((l) => l.includes('JEV: response')));
+  assert.ok(logs.every((l) => l[0] === '[JEV][auto]'));
+  // l'analyse manuelle n'est pas touchée : aucun surlignage
+  assert.equal(doc.querySelectorAll('.jev-recommended-bet').length, 0);
+});
+
+test('smoke Auto : STOP annule un step programmé', async () => {
+  let steps = 0;
+  let stopped = false;
+  const { doc } = boot(fixture(), { autoMode: true, __before: (w) => {
+    w.JEV.CONFIG.auto.stepMs = 100;
+    w.JEV.Auto.Wiring.createRuntime = () => ({
+      store: { get: async () => ({ phase: stopped ? 'STOPPED' : 'SCAN' }) },
+      stop: async () => { stopped = true; },
+      controller: { init: async () => 'SCAN', arm: async () => {}, step: async () => { steps++; return 'SCAN'; } }
+    });
+  } });
+  await wait(30);
+  doc.querySelector('jev-auto').shadowRoot.querySelector('[data-k="stop"]').click();
+  await wait(170);
+  assert.equal(steps, 0);
 });
 
 // fermeture des fenêtres jsdom (timers/observers) pour que le process puisse se terminer
