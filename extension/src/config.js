@@ -75,7 +75,7 @@
       maxOdds: 4,
       maxDriftPct: 3,
       minLeadSec: 90,
-      minConfidence: 0.6,
+      minConfidence: 0, // 0 = pas de seuil ; la confiance JEV mesure la concentration des probabilités, pas la qualité du pari
       confirmTimeoutMs: 8000,
       hiddenTabMs: 5000,
       slipWaitMs: 3000, // attente des mises à jour du ticket (Angular asynchrone), ≤ 10000

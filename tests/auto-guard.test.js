@@ -5,13 +5,15 @@ const { CONFIG } = require('../extension/src/config');
 const Guard = require('../extension/src/auto/guard');
 
 const base = () => structuredClone(CONFIG.auto);
+// Config avec seuil de confiance actif (le défaut est 0 = désactivé) pour tester la règle quand elle est demandée.
+const strict = () => ({ ...base(), minConfidence: 0.6 });
 const good = (o = {}) => ({ balance: 100, stake: 5, odds: 2, analysedOdds: 2, suspended: false, leadSec: 200, confidence: 0.8, ...o });
 
 test('defauts CONFIG.auto', () => {
   const a = CONFIG.auto;
   assert.deepStrictEqual(
     [a.minOdds, a.maxOdds, a.maxDriftPct, a.minLeadSec, a.minConfidence, a.confirmTimeoutMs, a.hiddenTabMs, a.maxBets, a.maxLosses, a.maxLossFraction, a.maxStakeFraction],
-    [1.3, 4, 3, 90, 0.6, 8000, 5000, 5, 3, 0.5, 0.1]);
+    [1.3, 4, 3, 90, 0, 8000, 5000, 5, 3, 0.5, 0.1]);
   assert.ok(a.quickMarkets.football.length >= 5 && a.quickMarkets.basketball.length >= 2);
   assert.deepStrictEqual(Guard.validateConfig(a), { ok: true, errors: [] });
 });
@@ -19,7 +21,7 @@ test('defauts CONFIG.auto', () => {
 const over = [
   ['maxStakeFraction', 0.11], ['maxLossFraction', 0.51], ['maxBets', 6], ['maxLosses', 4],
   ['minOdds', 1.19], ['maxOdds', 6.01], ['maxDriftPct', 5.1], ['minLeadSec', 59],
-  ['minConfidence', 0.49], ['confirmTimeoutMs', 15001], ['hiddenTabMs', 10001],
+  ['minConfidence', -0.1], ['confirmTimeoutMs', 15001], ['hiddenTabMs', 10001],
   ['slipWaitMs', 10001], ['slipWaitMs', 0], ['identifyRetries', 6], ['identifyRetries', 0], ['identifyRetries', 2.5], ['pollMs', 49], ['pollMs', 1001]
 ];
 for (const [k, v] of over) {
@@ -69,7 +71,7 @@ test('maxStake', () => {
 });
 
 test('check OUI nominal et refus un par un', () => {
-  const g = Guard.create(base(), 100);
+  const g = Guard.create(strict(), 100);
   assert.equal(g.check(good()).verdict, 'OUI');
   const no = (o) => { const r = g.check(good(o)); assert.equal(r.verdict, 'NON', JSON.stringify(o)); assert.ok(r.reason); };
   no({ stake: 10.01 }); no({ stake: 0 }); no({ stake: NaN }); no({ stake: -1 });
@@ -141,7 +143,7 @@ test('fuzz: 2000 propositions, plafonds jamais depasses', () => {
   let oui = 0;
   for (let i = 0; i < 2000; i++) {
     const start = rnd() < 0.2 ? 5.9 : 1 + rnd() * 500;
-    const g = Guard.create(base(), start);
+    const g = Guard.create(strict(), start);
     for (let k = Math.floor(rnd() * 6); k > 0; k--) g.recordPlaced();
     if (rnd() < 0.25) g.reserve(rnd() * start * 0.3);
     const pick = (v) => (rnd() < 0.08 ? weird[Math.floor(rnd() * weird.length)] : v);
@@ -171,7 +173,7 @@ test('guard.js et config.js sans mot cle API', () => {
 });
 
 test('snapshot: muter cfg apres create ne change rien', () => {
-  const c = base(); const g = Guard.create(c, 100);
+  const c = strict(); const g = Guard.create(c, 100);
   c.minOdds = 1.0; c.minLeadSec = NaN; c.minConfidence = undefined; c.maxOdds = 99;
   assert.equal(g.check(good({ odds: 1.05, analysedOdds: 1.05 })).verdict, 'NON');
   assert.equal(g.check(good({ leadSec: 10 })).verdict, 'NON');
@@ -262,4 +264,13 @@ test('stepMs : défaut 1500, borné 500..10000', () => {
   assert.strictEqual(CONFIG.auto.stepMs, 1500);
   for (const v of [499, 10001]) { const c = base(); c.stepMs = v; assert.equal(Guard.validateConfig(c).ok, false, String(v)); }
   for (const v of [500, 10000]) { const c = base(); c.stepMs = v; assert.equal(Guard.validateConfig(c).ok, true, String(v)); }
+});
+
+test('confiance JEV : sans seuil (défaut) une confiance basse ou absente ne bloque pas ; avec seuil elle bloque', () => {
+  const off = Guard.create(base(), 100);
+  assert.equal(off.check(good({ confidence: 0.24 })).verdict, 'OUI');
+  assert.equal(off.check(good({ confidence: null })).verdict, 'OUI');
+  const on = Guard.create(strict(), 100);
+  assert.equal(on.check(good({ confidence: 0.24 })).verdict, 'NON');
+  assert.equal(on.check(good({ confidence: null })).verdict, 'NON');
 });
