@@ -224,13 +224,16 @@
           return retryAfter[href] > time;
         }));
         const all = (scanner.scanLive(doc, sports) || []).filter(Boolean);
-        const scanSummary = { total: all.length, tried: 0, sport: 0, paused: 0 };
+        const bet = new Set(st.betHrefs || []);
+        const scanSummary = { total: all.length, tried: 0, sport: 0, paused: 0, bet: 0 };
         for (const e of all) {
-          if (!sports.includes(e.sport)) scanSummary.sport++;
+          if (bet.has(e.href)) scanSummary.bet++;
+          else if (!sports.includes(e.sport)) scanSummary.sport++;
           else if (!e.clock || !e.clock.running) scanSummary.paused++;
           else if (tried.has(e.href)) scanSummary.tried++;
         }
-        const events = all.filter((e) => !tried.has(e.href));
+        // Un live sur lequel un pari est placé n'est plus jamais proposé pendant la session : on cherche un autre live.
+        const events = all.filter((e) => !tried.has(e.href) && !bet.has(e.href));
         log('controller: scan', { summary: scanSummary, candidates: events.map(({ name, sport, clock }) => ({ name, sport, clock })) });
         await set({ phase: 'CHOIX', events, tried: [...tried], retryAfter, scanSummary, message: null, cycles: (st.cycles || 0) + 1 });
         return 'CHOIX';
@@ -246,7 +249,7 @@
         if (!event) {
           const summary = st.scanSummary;
           const message = summary
-            ? `Recherche : ${summary.total} détecté(s), ${summary.tried} déjà tenté(s) en attente de réanalyse, ${summary.paused} en pause/non démarré(s), ${summary.sport} hors sport Auto (${sports.join(', ')}). Nouvelle recherche après la pause.`
+            ? `Recherche : ${summary.total} détecté(s), ${summary.tried} déjà tenté(s) en attente de réanalyse, ${summary.paused} en pause/non démarré(s), ${summary.sport} hors sport Auto (${sports.join(', ')}), ${summary.bet || 0} déjà parié(s). Nouvelle recherche après la pause.`
             : 'Aucun événement en cours éligible : nouvelle recherche après la pause.';
           log(message);
           await set({ phase: 'PAUSE', events: null, message });
@@ -365,8 +368,11 @@
           return 'STOPPED';
         }
         const bet = { ref: id.reference, method: id.method, stake: st.placedStake, status: 'pending', event: st.event.name, execId: st.execId || null };
-        await set({ phase: 'PAUSE', bets: [...(st.bets || []), bet], before: null, pick: null, event: null });
-        return 'PAUSE';
+        // Pari identifié : le live est marqué parié et on repart tout de suite chercher un autre live (SCAN navigue vers /live), sans pause.
+        await set({ phase: 'SCAN', bets: [...(st.bets || []), bet], betHrefs: Array.from(new Set([...(st.betHrefs || []), st.event.href])), before: null, pick: null, event: null,
+          message: `Pari placé sur « ${st.event.name} ». Recherche d'un autre live sans pari.` });
+        log('controller: pari placé, retour à la recherche de live', { event: st.event.name });
+        return 'SCAN';
       },
       async PAUSE() {
         log('controller: pause', { pauseMs });

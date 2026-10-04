@@ -58,9 +58,8 @@ for (const scenario of ['dry', 'real', 'unconfirmed']) test(`cycle complet ${sce
     assert.equal(state.lastPlaced.stake, 0.4);
     assert.equal(state.guardSnap.placed, 1);
     assert.equal(site.slipCount(), 0);
-    assert.equal(await ctl.step(), 'PAUSE');
-    assert.equal(await ctl.step(), 'SCAN');
-    assert.equal(await ctl.step(), 'SCAN');
+    assert.equal(await ctl.step(), 'SCAN'); // ATTENTE : pari identifié, retour immédiat à la recherche
+    assert.equal(await ctl.step(), 'SCAN'); // SCAN : navigation vers /live
     assert.equal(site.doc.location.pathname, '/live');
   } else {
     for (let i = 0; i < 10; i++) assert.equal(await ctl.step(), 'STOPPED');
