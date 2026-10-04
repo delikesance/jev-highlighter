@@ -454,7 +454,7 @@
 
     const rt = A.Wiring.createRuntime({
       chromeApi: chrome, doc: document, tabId, settings: st.settings, cfg: CONFIG.auto, modules: A, now, sleep, log: alog,
-      chooseEvent, analyze: analyzeAuto, stakeFromTicket, journal, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
+      sports: CONFIG.autoSports, chooseEvent, analyze: analyzeAuto, stakeFromTicket, journal, parseMarkets: (d) => parseMarkets(d).list, navigate: (url) => location.assign(url)
     });
     auto.rt = rt;
     const status = async () => ({ ...(await rt.store.get()), balance: A.Readers.readWallet(document) });

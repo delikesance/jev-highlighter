@@ -100,6 +100,10 @@
       }
     },
 
+    // Sports acceptés par le mode Auto (nom lu sur l'icône icon_sport_<nom> de /live). Seuls les sports à horloge lisible
+    // (minutes ou compte à rebours) sont exploitables : le guard refuse tout pari dont le temps restant est inconnu.
+    autoSports: ['football', 'basketball', 'ice_hockey'],
+
     // Journal des décisions Auto (chrome.storage.local) : nombre d'entrées conservées.
     journal: { max: 200 },
 
