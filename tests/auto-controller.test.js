@@ -216,11 +216,11 @@ test('arm refusé si solde illisible', async () => {
   assert.notEqual(t.store.raw().phase, 'ARMED');
 });
 
-test('cycle normal ARMED→SCAN→CHOIX→ANALYSE→GARDE→EXEC→ATTENTE→PAUSE→SCAN, retour /live', async () => {
+test('cycle normal ARMED→SCAN→CHOIX→ANALYSE→GARDE→EXEC→ATTENTE→SCAN (retour immédiat à /live, sans pause)', async () => {
   const t = await armed();
   const seq = [];
   for (let i = 0; i < 9; i++) seq.push(await t.ctl.step());
-  assert.deepEqual(seq, ['SCAN', 'CHOIX', 'ANALYSE', 'GARDE', 'EXEC', 'ATTENTE', 'PAUSE', 'SCAN', 'SCAN']);
+  assert.deepEqual(seq, ['SCAN', 'CHOIX', 'ANALYSE', 'GARDE', 'EXEC', 'ATTENTE', 'SCAN', 'SCAN', 'CHOIX']);
   assert.deepEqual(t.navs, [ORIGIN + '/football/match-1', ORIGIN + '/live']);
   assert.equal(t.deps.lastDecision.confidence, 0.8);
   assert.equal(t.deps.lastDecision.analysedOdds, 2);
@@ -307,14 +307,14 @@ test('stopped persisté → reste STOPPED', async () => {
 test('5e pari → STOPPED limite de session', async () => {
   const t = await armed();
   let s;
-  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [] }); }
+  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [], betHrefs: [] }); }
   assert.equal(s, 'STOPPED');
   assert.equal(t.guard.state.placed, 5);
   assert.match(t.store.raw().reason, /limite de session/);
 });
 
 test('rechargement à chaque step : le 6e pari n\'est jamais tenté', async () => {
-  const r = await reloadingRun({}, 200, (store) => store.set({ tried: [], playedKeys: [] }));
+  const r = await reloadingRun({}, 200, (store) => store.set({ tried: [], playedKeys: [], betHrefs: [] }));
   assert.equal(r.s, 'STOPPED');
   assert.equal(r.all.place, 5);
   assert.equal(r.store.raw().bets.length, 5);
@@ -324,7 +324,7 @@ test('rechargement à chaque step : le 6e pari n\'est jamais tenté', async () =
 });
 
 test('rechargements : 3 défaites → STOPPED', async () => {
-  const r = await reloadingRun({ resolve: () => 'lost' }, 200, (store) => store.set({ tried: [], playedKeys: [] }));
+  const r = await reloadingRun({ resolve: () => 'lost' }, 200, (store) => store.set({ tried: [], playedKeys: [], betHrefs: [] }));
   assert.equal(r.s, 'STOPPED');
   assert.match(r.store.raw().reason, /défaites/);
   assert.equal(r.t.guard.state.consecutiveLosses, 3);
@@ -332,7 +332,7 @@ test('rechargements : 3 défaites → STOPPED', async () => {
 
 test('rechargements : perte > 50 % du solde de départ → refus, solde de départ non relu', async () => {
   let n = 0;
-  const r = await reloadingRun({ stake: 10, resolve: () => 'won' }, 200, (store, world) => { n++; world.wallet = 55; return store.set({ tried: [], playedKeys: [] }); });
+  const r = await reloadingRun({ stake: 10, resolve: () => 'won' }, 200, (store, world) => { n++; world.wallet = 55; return store.set({ tried: [], playedKeys: [], betHrefs: [] }); });
   assert.equal(r.world.walletReads, 1);
   assert.equal(r.store.raw().session.startBalance, 100);
   assert.equal(r.all.place >= 1, true);
@@ -431,7 +431,7 @@ test('snapshot null → STOPPED sans place()', async () => {
 test('3 défaites résolues → STOPPED, réserve libérée', async () => {
   const t = await armed({ resolve: () => 'lost' });
   let s;
-  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [] }); }
+  for (let i = 0; i < 80; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [], betHrefs: [] }); }
   assert.equal(s, 'STOPPED');
   assert.equal(t.guard.state.consecutiveLosses, 3);
   assert.equal(t.guard.state.reserved, 0);
@@ -474,7 +474,7 @@ test('ré-entrance : deux step() concurrents → un seul place()', async () => {
 test('limite de cycles → STOPPED', async () => {
   const t = await armed({ cfg: { maxCycles: 2 }, answers: [] });
   let s;
-  for (let i = 0; i < 40; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [] }); }
+  for (let i = 0; i < 40; i++) { s = await t.ctl.step(); if (s === 'STOPPED') break; if (s === 'SCAN') await t.store.set({ tried: [], playedKeys: [], betHrefs: [] }); }
   assert.equal(s, 'STOPPED');
   assert.match(t.store.raw().reason, /limite de cycles/);
 });
@@ -511,7 +511,7 @@ test('(a) crash juste après {pending:null, lastPlaced, guardSnap} → compté u
   assert.equal(t.guard.state.reserved, 5);
   assert.equal(await t.ctl.step(), 'ATTENTE');
   assert.ok(!t.calls.includes('place'));
-  assert.equal(await t.ctl.step(), 'PAUSE');
+  assert.equal(await t.ctl.step(), 'SCAN');
   assert.equal(store.raw().bets.length, 1);
   assert.equal(store.raw().bets[0].stake, 5);
   assert.equal(t.guard.state.placed, 1);
@@ -556,7 +556,7 @@ test('(d) même pari réel filtré dès ANALYSE, aucun second place()', async ()
   assert.equal(t.store.raw().phase, 'EXEC');
   assert.deepEqual(t.store.raw().tried, ['/football/match-1']);
   for (let i = 0; i < 3; i++) await t.ctl.step();
-  await t.store.set({ tried: [] });
+  await t.store.set({ tried: [], betHrefs: [] });
   let s;
   for (let i = 0; i < 6; i++) {
     s = await t.ctl.step();
@@ -648,4 +648,26 @@ test('sports : un live de hockey n\'est candidat que si le sport est autorisé',
   await on.ctl.step(); await on.ctl.step();
   assert.equal(await on.ctl.step(), 'ANALYSE');
   assert.equal(on.store.raw().event.sport, 'ice_hockey');
+});
+
+test('après un pari : le live parié n\'est plus jamais proposé, un autre live sans pari est choisi, sans pause', async () => {
+  const second = { ...EVENT, href: '/football/second', name: 'C - D', index: 1 };
+  const t = await armed({ events: [EVENT, second] });
+  for (let i = 0; i < 7; i++) await t.ctl.step();
+  assert.equal(t.store.raw().phase, 'SCAN');
+  assert.deepEqual(t.store.raw().betHrefs, [EVENT.href]);
+  assert.equal(await t.ctl.step(), 'SCAN'); // navigation vers /live
+  assert.equal(await t.ctl.step(), 'CHOIX');
+  assert.deepEqual(t.store.raw().events.map((e) => e.href), [second.href]);
+  assert.equal(await t.ctl.step(), 'ANALYSE');
+  assert.equal(t.store.raw().event.href, second.href);
+});
+
+test('tous les lives sont déjà pariés : message explicite et pause, aucune nouvelle analyse', async () => {
+  const t = await armed({ events: [EVENT] });
+  for (let i = 0; i < 7; i++) await t.ctl.step();
+  await t.ctl.step(); await t.ctl.step();
+  assert.equal(await t.ctl.step(), 'PAUSE');
+  assert.match(t.store.raw().message, /1 déjà parié/);
+  assert.equal(t.calls.filter((c) => c === 'analyze').length, 1);
 });
