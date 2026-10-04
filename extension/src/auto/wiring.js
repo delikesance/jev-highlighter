@@ -140,7 +140,7 @@
           d = page();
           if (d && filterActive(d, filter) && !d.querySelector(LOADER_SEL)) {
             const cards = Array.from(d.querySelectorAll('my-bets-page bet-card'));
-            const sig = cards.map((c) => (c.getAttribute('data-qa') || '') + '/' + (c.className || '')).join('|');
+            const sig = cards.map((c) => { const b = c.querySelector('.betCard') || c; return (b.getAttribute('data-qa') || c.getAttribute('data-qa') || '') + '/' + (b.className || '') + '/' + (c.className || ''); }).join('|');
             same = sig === prev ? same + 1 : 1;
             prev = sig;
             const need = cards.length ? 2 : d.querySelector(EMPTY_SEL) ? 2 : 3;

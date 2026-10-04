@@ -214,3 +214,21 @@ test('unknown: allowlist ancrée au contexte et à la forme', () => {
   assert.deepStrictEqual(U((d) => { d.querySelector('.progressiveBettingSlip_headerTitle span').textContent = 'Erreur'; }), ['Erreur']);
   assert.deepStrictEqual(U((d) => d.querySelector('sports-betting-slip').insertAdjacentHTML('beforeend', '<span class="is-multiboost">Booste ton pari</span>')), []);
 });
+
+test('readMyBets : markup réel (data-qa et classes sur le div .betCard interne, « Réf » devant la référence)', () => {
+  const { JSDOM } = require('jsdom');
+  const html = `<my-bets-page>
+    <bet-card class="display_block"><div class="betCard is-simple is-expanded" data-qa="6ac1ac89a136229e3b185108">
+      <span data-qa="bet-card-stake">0,76&nbsp;€</span><span data-qa="bet-card-winnings">1,25&nbsp;€</span>
+      <span data-qa="bet-card-reference"> Réf 6ac1ac89a136229e3b185108</span></div></bet-card>
+    <bet-card class="display_block"><div class="betCard is-ended is-lost" data-qa="aaa">
+      <span data-qa="bet-card-status-tag">Perdu</span><span data-qa="bet-card-reference">Réf aaa</span></div></bet-card>
+  </my-bets-page>`;
+  const cards = require('../extension/src/auto/readers').readMyBets(new JSDOM(html).window.document);
+  assert.equal(cards[0].id, '6ac1ac89a136229e3b185108');
+  assert.equal(cards[0].reference, '6ac1ac89a136229e3b185108');
+  assert.equal(cards[0].status, 'ongoing');
+  assert.equal(cards[0].stake, 0.76);
+  assert.equal(cards[1].status, 'lost');
+  assert.equal(cards[1].reference, 'aaa');
+});
